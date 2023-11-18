@@ -115,7 +115,7 @@ async def process_notification(
                     "request_id": x_request_id,
                 },
             )
-            return Response(status_code=200)
+            return Response(status_code=400)
 
         transaction_id = notification["txn_id"]
         if await notifications.already_processed(transaction_id):
@@ -139,7 +139,7 @@ async def process_notification(
                     "request_id": x_request_id,
                 },
             )
-            return Response(status_code=200)
+            return Response(status_code=400)
 
         donation_currency = notification["mc_currency"]
         if donation_currency not in ACCEPTED_CURRENCIES:
@@ -152,7 +152,7 @@ async def process_notification(
                     "request_id": x_request_id,
                 },
             )
-            return Response(status_code=200)
+            return Response(status_code=400)
 
         custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
 
@@ -204,7 +204,7 @@ async def process_notification(
                     "request_id": x_request_id,
                 },
             )
-            return Response(status_code=200)
+            return Response(status_code=400)
 
         # copy hanayo rounding behaviour on price
         calculated_price = round(calculated_price, 2)
@@ -220,7 +220,7 @@ async def process_notification(
                     "request_id": x_request_id,
                 },
             )
-            return Response(status_code=200)
+            return Response(status_code=400)
 
         new_privileges = user["privileges"] | PRIVILEGE_BITS_MAPPING[donation_tier]
         new_donor_expire = min(
@@ -299,6 +299,8 @@ async def process_notification(
                     notification=notification,
                 )
 
+        return Response(status_code=200)
+
     elif response.text == "INVALID":
         logging.warning(
             "PayPal IPN invalid",
@@ -308,6 +310,8 @@ async def process_notification(
             },
         )
         # fallthrough (do not let the client know of the invalidity)
+        return Response(status_code=400)
+
     else:
         logging.error(
             "PayPal IPN verification status unknown",
@@ -317,5 +321,3 @@ async def process_notification(
             },
         )
         return Response(status_code=400)
-
-    return Response(status_code=200)
