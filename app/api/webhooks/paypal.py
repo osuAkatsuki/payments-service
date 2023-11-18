@@ -24,16 +24,13 @@ PAYPAL_VERIFY_URL = (
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(request: Request):
     request_body = await request.body()
-    request_data = urllib.parse.parse_qsl(request_body.decode())
+    request_data = urllib.parse.parse_qs(request_body.decode())
 
     print("req body raw", request_body)
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
-        headers={
-            "content-type": "application/x-www-form-urlencoded",
-            "user-agent": "Python-IPN-Verification-Script",
-        },
-        content=b"cmd=_notify-validate&" + request_body,
+        headers={"content-type": "application/x-www-form-urlencoded"},
+        data={"cmd": "_notify-validate"} | request_data,
     )
     response.raise_for_status()
 
