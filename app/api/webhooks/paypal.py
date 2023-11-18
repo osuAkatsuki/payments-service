@@ -24,7 +24,7 @@ PAYPAL_VERIFY_URL = (
 async def process_notification(request: Request):
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
-        params=dict(request.query_params) | {"cmd": "_notify-validate"},
+        params=await request.json() | {"cmd": "_notify-validate"},
         headers={
             "content-type": "application/x-www-form-urlencoded",
             "user-agent": "Python-IPN-Verification-Script",
@@ -36,16 +36,14 @@ async def process_notification(request: Request):
         logging.info(
             "PayPal IPN verified",
             extra={
-                "query_params": dict(request.query_params),
-                "request_body": await request.body(),
+                "request_body": await request.json(),
             },
         )
     elif response.text == "INVALID":
         logging.warning(
             "PayPal IPN invalid",
             extra={
-                "query_params": dict(request.query_params),
-                "request_body": await request.body(),
+                "request_body": await request.json(),
             },
         )
     else:
@@ -53,8 +51,7 @@ async def process_notification(request: Request):
             "PayPal IPN verification status unknown",
             extra={
                 "response_text": response.text,
-                "query_params": dict(request.query_params),
-                "request_body": await request.body(),
+                "request_body": await request.json(),
             },
         )
         return Response(status_code=400)
