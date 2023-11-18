@@ -87,7 +87,7 @@ async def process_notification(
     x_request_id: str = Header(default_factory=uuid.uuid4),
 ):
     request_data = await request.body()
-    logging.debug(
+    logging.info(  # TODO: change to debug once stabilized
         "Received PayPal IPN notification",
         extra={
             "request_data": request_data,
