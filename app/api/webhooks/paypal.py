@@ -69,7 +69,6 @@ async def process_notification(
                 extra={
                     "reason": "non_completed_transaction",
                     "payment_status": notification["payment_status"],
-                    "notification": notification,
                     "request_id": x_request_id,
                 },
             )
@@ -83,7 +82,6 @@ async def process_notification(
                 extra={
                     "reason": "transaction_already_processed",
                     "transaction_id": transaction_id,
-                    "notification": notification,
                     "request_id": x_request_id,
                 },
             )
@@ -96,7 +94,6 @@ async def process_notification(
                     "reason": "wrong_paypal_business_email",
                     "business": notification["business"],
                     "expected_business": settings.PAYPAL_BUSINESS_EMAIL,
-                    "notification": notification,
                     "request_id": x_request_id,
                 },
             )
@@ -109,7 +106,6 @@ async def process_notification(
                     "reason": "non_accpeted_currency",
                     "currency": notification["mc_currency"],
                     "accepted_currencies": ACCEPTED_CURRENCIES,
-                    "notification": notification,
                     "request_id": x_request_id,
                 },
             )
@@ -137,7 +133,6 @@ async def process_notification(
                 extra={
                     "reason": "invalid_donation_tier",
                     "donation_tier": donation_tier,
-                    "notification": notification,
                     "request_id": x_request_id,
                 },
             )
@@ -153,7 +148,6 @@ async def process_notification(
                     "reason": "invalid_donation_amount",
                     "amount": notification["mc_gross"],
                     "donation_price": donation_price,
-                    "notification": notification,
                     "request_id": x_request_id,
                 },
             )
@@ -168,7 +162,6 @@ async def process_notification(
                 "Failed to process IPN notification",
                 extra={
                     "reason": "no_user_identification",
-                    "notification": notification,
                     "request_id": x_request_id,
                 },
             )
@@ -182,7 +175,6 @@ async def process_notification(
                     "reason": "user_not_found",
                     "user_id": user_id,
                     "username": username,
-                    "notification": notification,
                     "request_id": x_request_id,
                 },
             )
@@ -213,7 +205,8 @@ async def process_notification(
                 "new_privileges": new_privileges,
                 "new_donor_expiry": new_donor_expire,
                 "amount": donation_price,
-                "notification": notification,
+                "currency": notification["mc_currency"],
+                "transaction_id": transaction_id,
                 "request_id": x_request_id,
             },
         )
@@ -233,7 +226,6 @@ async def process_notification(
             "PayPal IPN invalid",
             extra={
                 "response_text": response.text,
-                "notification": notification,
                 "request_id": x_request_id,
             },
         )
@@ -243,7 +235,6 @@ async def process_notification(
             "PayPal IPN verification status unknown",
             extra={
                 "response_text": response.text,
-                "notification": notification,
                 "request_id": x_request_id,
             },
         )
