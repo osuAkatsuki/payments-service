@@ -7,10 +7,10 @@ from fastapi import APIRouter
 from fastapi import Header
 from fastapi import Request
 from fastapi import Response
-from repositories import users
 
 from app import clients
 from app import settings
+from app.repositories import users
 
 
 router = APIRouter()
