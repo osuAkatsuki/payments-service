@@ -1,18 +1,16 @@
+import logging
 import time
+import urllib.parse
 import uuid
 
 from fastapi import APIRouter
 from fastapi import Header
-from fastapi import Response
 from fastapi import Request
+from fastapi import Response
+from repositories import users
 
 from app import clients
 from app import settings
-
-import urllib.parse
-import logging
-
-from repositories import users
 
 
 router = APIRouter()
@@ -125,7 +123,7 @@ async def process_notification(
 
         # TODO: potentially clean this up
         donation_tier = notification["option_name2"].removeprefix(
-            "Akatsuki user to give "
+            "Akatsuki user to give ",
         )
         donation_months = int(notification["option_selection1"].removesuffix(" months"))
 

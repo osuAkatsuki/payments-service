@@ -1,7 +1,7 @@
-from databases import Database
-import httpx
-
 from typing import TYPE_CHECKING
+
+import httpx
+from databases import Database
 
 from app import settings
 from app.adapters import postgres
@@ -19,5 +19,5 @@ database = Database(
         database=settings.DB_NAME,
         driver=settings.DB_DRIVER,
         password=settings.DB_PASS,
-    )
+    ),
 )
