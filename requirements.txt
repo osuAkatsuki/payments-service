@@ -1,4 +1,5 @@
 fastapi
+httpx
 pydantic
 python-dotenv
 python-json-logger

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 import app.clients
 import app.exception_handling
 import app.logging
-import settings
+from app import settings
 from app.api.webhooks import webhooks_router
 
 
