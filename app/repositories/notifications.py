@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any
 from typing import TypedDict
@@ -33,7 +34,7 @@ async def insert(transaction_id: str, notification: dict[str, Any]) -> None:
         """,
         values={
             "transaction_id": transaction_id,
-            "notification": notification,
+            "notification": json.dumps(notification),
         },
     )
     return None
