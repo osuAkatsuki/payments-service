@@ -66,9 +66,9 @@ async def process_notification(request: Request):
             )
             return Response(status_code=200)
 
-        if notification["receiver_email"] != settings.PAYPAL_BUSINESS_EMAIL:
+        if notification["business"] != settings.PAYPAL_BUSINESS_EMAIL:
             logging.warning(
-                "Wrong paypal receiver email",
+                "Wrong paypal business email",
                 extra={"notification": notification},
             )
             return Response(status_code=200)
@@ -88,9 +88,35 @@ async def process_notification(request: Request):
             extra={"user_id": user_id, "notification": notification},
         )
 
-        # TODO: dynamically determine support tier and number of months
-        donation_tier = "supporter" or "premium"
-        donation_months = 1
+        # TODO: potentially clean this up
+        donation_tier = notification["option_name2"].removeprefix(
+            "Akatsuki user to give "
+        )
+        donation_months = int(notification["option_selection1"].removesuffix(" months"))
+
+        if donation_tier == "supporter":
+            expected_cost = (donation_months * 30 * 0.2) ** 0.72
+        elif donation_tier == "premium":
+            expected_cost = (donation_months * 68 * 0.15) ** 0.93
+        else:
+            logging.error(
+                "Invalid donation tier",
+                extra={"notification": notification},
+            )
+            return Response(status_code=200)
+
+        # copy hanayo rounding behaviour
+        expected_cost = round(expected_cost, 2)
+
+        if float(notification["mc_gross"]) != expected_cost:
+            logging.error(
+                "Invalid donation cost",
+                extra={
+                    "notification": notification,
+                    "expected_cost": expected_cost,
+                },
+            )
+            return Response(status_code=200)
 
         user = await clients.database.fetch_one(
             query="""\
