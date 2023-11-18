@@ -1,4 +1,4 @@
-databases
+databases[aiomysql]
 fastapi
 httpx
 pydantic
