@@ -32,7 +32,7 @@ async def process_notification(request: Request):
             "content-type": "application/x-www-form-urlencoded",
             "user-agent": "Python-IPN-Verification-Script",
         },
-        params=request_body + b"&cmd=_notify-validate",
+        params=request_data + [("cmd", "_notify-validate")],  # type: ignore
     )
     response.raise_for_status()
 
