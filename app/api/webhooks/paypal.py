@@ -2,6 +2,9 @@ import logging
 import time
 import urllib.parse
 import uuid
+from typing import Any
+from typing import Literal
+from typing import TypedDict
 
 from fastapi import APIRouter
 from fastapi import Header
@@ -10,6 +13,7 @@ from fastapi import Response
 
 from app import clients
 from app import settings
+from app.repositories import user_badges
 from app.repositories import users
 
 
@@ -30,13 +34,53 @@ if settings.APP_ENV != "production":
 
 PRIVILEGE_BITS_MAPPING = {"supporter": 4, "premium": 8388608}
 
-PREMIUM_TO_SUPPORTER_RATE = (68 * 0.15) ** 0.93 / (30 * 0.2) ** 0.72
+BADGE_LIMIT = 6
+SUPPORTER_BADGE_ID = 36
+PREMIUM_BADGE_ID = 59
+
 
 seen_transactions: set[str] = set()
 
 
-async def processs_donation() -> None:
-    ...
+def calculate_supporter_price(months: int) -> float:
+    return (months * 30 * 0.2) ** 0.72
+
+
+def calculate_premium_price(months: int) -> float:
+    return (months * 68 * 0.15) ** 0.93
+
+
+class BadgeChange(TypedDict):
+    action: Literal["insert", "delete"]
+    id: int
+
+
+def work_out_final_badges(
+    user_id: int,
+    user_badges: list[user_badges.UserBadge],
+    badge_changes: list[BadgeChange],
+) -> list[user_badges.UserBadge]:
+    # sort so all deletes are first
+    badge_changes.sort(key=lambda x: x["action"] == "delete")
+
+    # apply changes
+    for action in badge_changes:
+        if action["action"] == "delete":
+            user_badges = [
+                badge for badge in user_badges if badge["badge"] != action["id"]
+            ]
+
+        # only apply inserts while there are under BADGE_LIMIT badges
+        elif action["action"] == "insert":
+            if len(user_badges) < BADGE_LIMIT:
+                user_badges.append({"user": user_id, "badge": action["id"]})
+            else:
+                logging.info(
+                    "Skipping badge insert due to badge limit",
+                    extra={"badge": action["id"], "user_id": user_id},
+                )
+
+    return user_badges
 
 
 @router.post("/webhooks/paypal_ipn")
@@ -150,9 +194,9 @@ async def process_notification(
         donation_months = int(notification["option_selection1"].removesuffix(" months"))
 
         if donation_tier == "supporter":
-            donation_price = (donation_months * 30 * 0.2) ** 0.72
+            donation_price = calculate_supporter_price(donation_months)
         elif donation_tier == "premium":
-            donation_price = (donation_months * 68 * 0.15) ** 0.93
+            donation_price = calculate_premium_price(donation_months)
         else:
             logging.error(
                 "Failed to process IPN notification",
@@ -188,14 +232,25 @@ async def process_notification(
             + donation_months * (60 * 60 * 24 * 30),
         )
 
+        badge_changes: list[BadgeChange] = []
+
+        if donation_tier == "premium":
+            badge_changes.append({"action": "insert", "id": PREMIUM_BADGE_ID})
+        elif donation_tier == "supporter":
+            badge_changes.append({"action": "insert", "id": SUPPORTER_BADGE_ID})
+
+        exchange_rate = calculate_premium_price(1) / calculate_supporter_price(1)
+
         # if a premium user buys supporter, convert them to a supporter
         # and exchange their premium months to supporter months
         if (
             user["privileges"] & PRIVILEGE_BITS_MAPPING["premium"] != 0
             and donation_tier == "supporter"
         ):
-            new_privileges &= ~PRIVILEGE_BITS_MAPPING["premium"]  # remove premium
-            donation_months = int(donation_months * PREMIUM_TO_SUPPORTER_RATE)
+            new_privileges &= ~PRIVILEGE_BITS_MAPPING["premium"]
+            badge_changes.append({"action": "delete", "id": PREMIUM_BADGE_ID})
+
+            donation_months = int(donation_months * exchange_rate)
 
         # if a supporter user buys premium, convert them to premium
         # and exchange their supporter months to premium months
@@ -203,7 +258,14 @@ async def process_notification(
             user["privileges"] & PRIVILEGE_BITS_MAPPING["supporter"] != 0
             and donation_tier == "premium"
         ):
-            donation_months = int(donation_months / PREMIUM_TO_SUPPORTER_RATE)
+            donation_months = int(donation_months / exchange_rate)
+
+        current_badges = await user_badges.fetch_all(user_id)
+        final_badges = work_out_final_badges(
+            user_id,
+            current_badges,
+            badge_changes,
+        )
 
         logging.info(
             "Granting donation perks to user",
@@ -214,6 +276,7 @@ async def process_notification(
                 "donation_months": donation_months,
                 "new_privileges": new_privileges,
                 "new_donor_expiry": new_donor_expire,
+                "badge_changes": badge_changes,
                 "amount": donation_price,
                 "currency": notification["mc_currency"],
                 "transaction_id": transaction_id,
@@ -221,12 +284,18 @@ async def process_notification(
             },
         )
 
+        # make writes to the database
         if settings.SHOULD_WRITE_TO_USERS_DB:
-            await users.partial_update(
-                user_id=user_id,
-                privileges=new_privileges,
-                donor_expire=new_donor_expire,
-            )
+            async with clients.database.transaction():
+                await users.partial_update(
+                    user_id=user_id,
+                    privileges=new_privileges,
+                    donor_expire=new_donor_expire,
+                )
+
+                await user_badges.delete_by_user_id(user_id)
+                for badge in final_badges:
+                    await user_badges.insert(user_id, badge["badge"])
 
         # TODO: store transaction as processed in database
         seen_transactions.add(transaction_id)
