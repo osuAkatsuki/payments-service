@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter
 from fastapi import Response
 from fastapi import Request
@@ -26,6 +27,10 @@ ACCEPTED_CURRENCIES = {"EUR"}
 if settings.APP_ENV != "production":
     ACCEPTED_CURRENCIES.add("USD")
 
+PRIVILEGE_MAPPING = {"supporter": 4, "premium": 8388608}
+
+seen_transactions: set[str] = set()
+
 
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(request: Request):
@@ -52,8 +57,14 @@ async def process_notification(request: Request):
             )
             return Response(status_code=200)
 
-        # TODO: check if transaction has already been processed
+        # TODO: check if transaction has already been processed in db
         transaction_id = notification["txn_id"]
+        if transaction_id in seen_transactions:
+            logging.warning(
+                "Transaction already processed",
+                extra={"notification": notification},
+            )
+            return Response(status_code=200)
 
         if notification["receiver_email"] != settings.PAYPAL_BUSINESS_EMAIL:
             logging.warning(
@@ -77,9 +88,48 @@ async def process_notification(request: Request):
             extra={"user_id": user_id, "notification": notification},
         )
 
-        # TODO: determine support tier, and number of months
+        # TODO: dynamically determine support tier and number of months
+        donation_tier = "supporter" or "premium"
+        donation_months = 1
 
-        # TODO: fetch user from database, write donation perks
+        user = await clients.database.fetch_one(
+            query="""\
+                SELECT * FROM users WHERE id = :user_id
+            """,
+            values={"user_id": user_id},
+        )
+        if user is None:
+            logging.error(
+                "User not found while attempting to distribute donation perks",
+                extra={"user_id": user_id, "notification": notification},
+            )
+            return Response(status_code=400)
+
+        new_privileges = PRIVILEGE_MAPPING[donation_tier]
+        new_donor_expiry = max(user["donor_expire"], time.time()) + donation_months * (
+            60 * 60 * 24 * 30
+        )
+
+        # TODO: if the user already has a donation tier, ensure we are not
+        #       upgrading or downgrading them by converting the value of the
+        #       different perks against eachother.
+
+        await clients.database.execute(
+            query="""\
+                UPDATE users
+                   SET privileges = privileges | :privileges,
+                       donor_expire = :donor_expire
+                 WHERE id = :user_id
+            """,
+            values={
+                "privileges": new_privileges,
+                "donor_expire": new_donor_expiry,
+                "user_id": user_id,
+            },
+        )
+
+        # TODO: store transaction as processed in database
+        seen_transactions.add(transaction_id)
 
     elif response.text == "INVALID":
         logging.warning(
