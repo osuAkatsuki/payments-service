@@ -24,13 +24,13 @@ PAYPAL_VERIFY_URL = (
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(request: Request):
     request_body = await request.body()
-    request_data = urllib.parse.unquote(request_body)
+    request_data = request_body.decode("utf-8")
 
     print("req body raw", request_body)
     response = await clients.http.post(
-        url=PAYPAL_VERIFY_URL,
+        url=PAYPAL_VERIFY_URL + "?" + "cmd=_notify-validate" + "&" + request_data,
         headers={"content-type": "application/x-www-form-urlencoded"},
-        content="cmd=_notify-validate&" + request_data,
+        # content="cmd=_notify-validate&" + request_data,
     )
     response.raise_for_status()
 
