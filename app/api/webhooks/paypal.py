@@ -26,6 +26,7 @@ async def process_notification(request: Request):
     request_body = await request.body()
     request_data = urllib.parse.parse_qsl(request_body.decode())
 
+    print("req body raw", request_body)
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
         headers={
