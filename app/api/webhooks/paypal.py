@@ -51,7 +51,6 @@ async def process_notification(
         },
     )
 
-    # TODO: test if we can use parse_qs & cleanup here
     request_params = urllib.parse.parse_qsl(request_data.decode())
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
