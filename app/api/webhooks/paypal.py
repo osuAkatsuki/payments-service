@@ -28,7 +28,7 @@ ACCEPTED_CURRENCIES = {"EUR"}
 if settings.APP_ENV != "production":
     ACCEPTED_CURRENCIES.add("USD")
 
-PRIVILEGE_MAPPING = {"supporter": 4, "premium": 8388608}
+PRIVILEGE_BITS_MAPPING = {"supporter": 4, "premium": 8388608}
 
 seen_transactions: set[str] = set()
 
@@ -190,9 +190,10 @@ async def process_notification(
 
         user_id = user["id"]
         username = user["username"]
+        tier_privileges_bits = PRIVILEGE_BITS_MAPPING[donation_tier]
 
-        new_privileges = PRIVILEGE_MAPPING[donation_tier]
-        new_donor_expiry = min(
+        new_privileges = user["privileges"] | tier_privileges_bits
+        new_donor_expire = min(
             (1 << 31) - 1,  # i32 max
             max(user["donor_expire"], time.time())
             + donation_months * (60 * 60 * 24 * 30),
@@ -210,7 +211,7 @@ async def process_notification(
                 "donation_tier": donation_tier,
                 "donation_months": donation_months,
                 "new_privileges": new_privileges,
-                "new_donor_expiry": new_donor_expiry,
+                "new_donor_expiry": new_donor_expire,
                 "amount": donation_price,
                 "notification": notification,
                 "request_id": x_request_id,
@@ -218,18 +219,10 @@ async def process_notification(
         )
 
         if settings.SHOULD_WRITE_TO_USERS_DB:
-            await clients.database.execute(
-                query="""\
-                    UPDATE users
-                    SET privileges = privileges | :privileges,
-                        donor_expire = :donor_expire
-                    WHERE id = :user_id
-                """,
-                values={
-                    "privileges": new_privileges,
-                    "donor_expire": new_donor_expiry,
-                    "user_id": user["id"],
-                },
+            await users.partial_update(
+                user_id=user_id,
+                privileges=new_privileges,
+                donor_expire=new_donor_expire,
             )
 
         # TODO: store transaction as processed in database

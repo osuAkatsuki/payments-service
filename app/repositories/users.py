@@ -25,3 +25,27 @@ async def fetch_by_username(username: str) -> dict[str, Any] | None:
         values={"username": username},
     )
     return dict(user._mapping) if user is not None else None
+
+
+async def partial_update(
+    user_id: int,
+    donor_expire: int | None = None,
+    privileges: int | None = None,
+) -> None:
+    if donor_expire is None and privileges is None:
+        return None
+
+    await clients.database.execute(
+        query=f"""\
+            UPDATE users
+            SET donor_expire = :donor_expire,
+                privileges = :privileges
+            WHERE id = :user_id
+        """,
+        values={
+            "user_id": user_id,
+            "donor_expire": donor_expire,
+            "privileges": privileges,
+        },
+    )
+    return None
