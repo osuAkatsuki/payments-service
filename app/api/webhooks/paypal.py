@@ -35,6 +35,7 @@ seen_transactions: set[str] = set()
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(request: Request):
     request_params = urllib.parse.parse_qsl((await request.body()).decode())
+    logging.info("Debug", extra={"notification": dict(request_params)})
 
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
