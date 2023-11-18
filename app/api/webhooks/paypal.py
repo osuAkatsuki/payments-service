@@ -30,6 +30,8 @@ if settings.APP_ENV != "production":
 
 PRIVILEGE_BITS_MAPPING = {"supporter": 4, "premium": 8388608}
 
+PREMIUM_TO_SUPPORTER_RATE = (68 * 0.15) ** 0.93 / (30 * 0.2) ** 0.72
+
 seen_transactions: set[str] = set()
 
 
@@ -186,9 +188,22 @@ async def process_notification(
             + donation_months * (60 * 60 * 24 * 30),
         )
 
-        # TODO: if the user already has a donation tier, ensure we are not
-        #       upgrading or downgrading them by converting the value of the
-        #       different perks against eachother.
+        # if a premium user buys supporter, convert them to a supporter
+        # and exchange their premium months to supporter months
+        if (
+            user["privileges"] & PRIVILEGE_BITS_MAPPING["premium"] != 0
+            and donation_tier == "supporter"
+        ):
+            new_privileges &= ~PRIVILEGE_BITS_MAPPING["premium"]  # remove premium
+            donation_months = int(donation_months * PREMIUM_TO_SUPPORTER_RATE)
+
+        # if a supporter user buys premium, convert them to premium
+        # and exchange their supporter months to premium months
+        elif (
+            user["privileges"] & PRIVILEGE_BITS_MAPPING["supporter"] != 0
+            and donation_tier == "premium"
+        ):
+            donation_months = int(donation_months / PREMIUM_TO_SUPPORTER_RATE)
 
         logging.info(
             "Granting donation perks to user",
