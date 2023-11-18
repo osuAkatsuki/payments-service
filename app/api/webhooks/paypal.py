@@ -156,8 +156,8 @@ async def process_notification(
 
         custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
 
-        if "user_id" in custom_fields:
-            user = await users.fetch_by_user_id(int(custom_fields["user_id"]))
+        if "userid" in custom_fields:
+            user = await users.fetch_by_user_id(int(custom_fields["userid"]))
         elif "username" in custom_fields:
             user = await users.fetch_by_username(custom_fields["username"])
         else:
