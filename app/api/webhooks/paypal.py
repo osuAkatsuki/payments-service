@@ -42,9 +42,17 @@ async def process_notification(
     request: Request,
     x_request_id: str = Header(default_factory=uuid.uuid4),
 ):
-    request_params = urllib.parse.parse_qsl((await request.body()).decode())
-    logging.info("Debug", extra={"notification": dict(request_params)})
+    request_data = await request.body()
+    logging.debug(
+        "Received PayPal IPN notification",
+        extra={
+            "request_data": request_data,
+            "request_id": x_request_id,
+        },
+    )
 
+    # TODO: test if we can use parse_qs & cleanup here
+    request_params = urllib.parse.parse_qsl(request_data.decode())
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
         headers={"content-type": "application/x-www-form-urlencoded"},
@@ -62,6 +70,7 @@ async def process_notification(
                     "reason": "non_completed_transaction",
                     "payment_status": notification["payment_status"],
                     "notification": notification,
+                    "request_id": x_request_id,
                 },
             )
             return Response(status_code=200)
@@ -75,6 +84,7 @@ async def process_notification(
                     "reason": "transaction_already_processed",
                     "transaction_id": transaction_id,
                     "notification": notification,
+                    "request_id": x_request_id,
                 },
             )
             return Response(status_code=200)
@@ -87,6 +97,7 @@ async def process_notification(
                     "business": notification["business"],
                     "expected_business": settings.PAYPAL_BUSINESS_EMAIL,
                     "notification": notification,
+                    "request_id": x_request_id,
                 },
             )
             return Response(status_code=200)
@@ -99,6 +110,7 @@ async def process_notification(
                     "currency": notification["mc_currency"],
                     "accepted_currencies": ACCEPTED_CURRENCIES,
                     "notification": notification,
+                    "request_id": x_request_id,
                 },
             )
             return Response(status_code=200)
@@ -124,6 +136,7 @@ async def process_notification(
                     "reason": "invalid_donation_tier",
                     "donation_tier": donation_tier,
                     "notification": notification,
+                    "request_id": x_request_id,
                 },
             )
             return Response(status_code=200)
@@ -139,6 +152,7 @@ async def process_notification(
                     "amount": notification["mc_gross"],
                     "donation_price": donation_price,
                     "notification": notification,
+                    "request_id": x_request_id,
                 },
             )
             return Response(status_code=200)
@@ -161,6 +175,7 @@ async def process_notification(
                     "user_id": user_id,
                     "username": username,
                     "notification": notification,
+                    "request_id": x_request_id,
                 },
             )
             return Response(status_code=400)
@@ -190,6 +205,7 @@ async def process_notification(
                 "new_donor_expiry": new_donor_expiry,
                 "amount": donation_price,
                 "notification": notification,
+                "request_id": x_request_id,
             },
         )
 
@@ -216,6 +232,7 @@ async def process_notification(
             extra={
                 "response_text": response.text,
                 "notification": notification,
+                "request_id": x_request_id,
             },
         )
         # fallthrough (do not let the client know of the invalidity)
@@ -225,6 +242,7 @@ async def process_notification(
             extra={
                 "response_text": response.text,
                 "notification": notification,
+                "request_id": x_request_id,
             },
         )
         return Response(status_code=400)
