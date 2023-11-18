@@ -51,16 +51,13 @@ async def process_notification(
         },
     )
 
-    # TODO: test if we can use parse_qs & cleanup here
-    request_params = urllib.parse.parse_qsl(request_data.decode())
+    notification = urllib.parse.parse_qs(request_data.decode())
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
         headers={"content-type": "application/x-www-form-urlencoded"},
-        params=[("cmd", "_notify-validate")] + request_params,  # type: ignore
+        params={"cmd": "_notify-validate"} | notification,
     )
     response.raise_for_status()
-
-    notification = dict(request_params)
 
     if response.text == "VERIFIED":
         if notification["payment_status"] != "Completed":
