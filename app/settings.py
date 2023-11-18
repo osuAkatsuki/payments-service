@@ -15,4 +15,13 @@ APP_PORT = int(os.environ["APP_PORT"])
 
 CODE_HOTRELOAD = read_bool(os.environ["CODE_HOTRELOAD"])
 
+DB_DIALECT = os.environ["DB_DIALECT"]
+DB_USER = os.environ["DB_USER"]
+DB_HOST = os.environ["DB_HOST"]
+DB_PORT = int(os.environ["DB_PORT"])
+DB_NAME = os.environ["DB_NAME"]
+DB_DRIVER = os.environ["DB_DRIVER"]
+DB_PASS = os.environ["DB_PASS"]
+INITIALLY_AVAILABLE_DB = os.environ["INITIALLY_AVAILABLE_DB"]
+
 PAYPAL_BUSINESS_EMAIL = os.environ["PAYPAL_BUSINESS_EMAIL"]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import atexit
 from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 import uvicorn
 from fastapi import FastAPI
@@ -13,8 +14,12 @@ from app.api.webhooks import webhooks_router
 
 
 @asynccontextmanager
-async def lifespan(asgi_app: FastAPI):
-    yield
+async def lifespan(asgi_app: FastAPI) -> AsyncIterator[None]:
+    try:
+        await app.clients.database.connect()
+        yield
+    finally:
+        await app.clients.database.disconnect()
 
 
 asgi_app = FastAPI(lifespan=lifespan)
