@@ -165,8 +165,10 @@ async def process_notification(
         username = user["username"]
 
         new_privileges = PRIVILEGE_MAPPING[donation_tier]
-        new_donor_expiry = max(user["donor_expire"], time.time()) + donation_months * (
-            60 * 60 * 24 * 30
+        new_donor_expiry = min(
+            (1 << 31) - 1,  # i32 max
+            max(user["donor_expire"], time.time())
+            + donation_months * (60 * 60 * 24 * 30),
         )
 
         # TODO: if the user already has a donation tier, ensure we are not
