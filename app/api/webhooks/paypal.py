@@ -4,6 +4,7 @@ from fastapi import Request
 
 from app import clients
 from app import settings
+import urllib.parse
 import logging
 
 
@@ -24,7 +25,10 @@ PAYPAL_VERIFY_URL = (
 async def process_notification(request: Request):
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
-        params=await request.json() | {"cmd": "_notify-validate"},
+        params=(
+            urllib.parse.parse_qs((await request.body()).decode())
+            | {"cmd": "_notify-validate"}
+        ),
         headers={
             "content-type": "application/x-www-form-urlencoded",
             "user-agent": "Python-IPN-Verification-Script",
