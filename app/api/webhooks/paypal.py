@@ -186,8 +186,12 @@ async def process_notification(
         username = user["username"]
 
         # TODO: potentially clean this up
-        donation_tier = notification["option_name2"].removeprefix(
-            "Akatsuki user to give ",
+        donation_tier = (
+            notification["option_name2"]
+            .removeprefix(
+                "Akatsuki user to give ",
+            )
+            .removesuffix(":")
         )
         donation_months = int(
             notification["option_selection1"].removesuffix("s").removesuffix(" month"),
