@@ -2,7 +2,6 @@ import logging
 import time
 import urllib.parse
 import uuid
-from typing import Any
 from typing import Literal
 from typing import TypedDict
 
@@ -13,6 +12,7 @@ from fastapi import Response
 
 from app import clients
 from app import settings
+from app.repositories import notifications
 from app.repositories import user_badges
 from app.repositories import users
 
@@ -30,6 +30,7 @@ PAYPAL_VERIFY_URL = (
 
 ACCEPTED_CURRENCIES = {"EUR"}
 if settings.APP_ENV != "production":
+    # the sandbox env only supports USD
     ACCEPTED_CURRENCIES.add("USD")
 
 PRIVILEGE_BITS_MAPPING = {"supporter": 4, "premium": 8388608}
@@ -39,7 +40,9 @@ SUPPORTER_BADGE_ID = 36
 PREMIUM_BADGE_ID = 59
 
 
-seen_transactions: set[str] = set()
+class BadgeChange(TypedDict):
+    action: Literal["insert", "delete"]
+    id: int
 
 
 def calculate_supporter_price(months: int) -> float:
@@ -48,11 +51,6 @@ def calculate_supporter_price(months: int) -> float:
 
 def calculate_premium_price(months: int) -> float:
     return (months * 68 * 0.15) ** 0.93
-
-
-class BadgeChange(TypedDict):
-    action: Literal["insert", "delete"]
-    id: int
 
 
 def work_out_final_badges(
@@ -119,9 +117,8 @@ async def process_notification(
             )
             return Response(status_code=200)
 
-        # TODO: check if transaction has already been processed in db
         transaction_id = notification["txn_id"]
-        if transaction_id in seen_transactions:
+        if await notifications.already_processed(transaction_id):
             logging.warning(
                 "Failed to process IPN notification",
                 extra={
@@ -144,12 +141,13 @@ async def process_notification(
             )
             return Response(status_code=200)
 
-        if notification["mc_currency"] not in ACCEPTED_CURRENCIES:
+        donation_currency = notification["mc_currency"]
+        if donation_currency not in ACCEPTED_CURRENCIES:
             logging.warning(
                 "Failed to process IPN notification",
                 extra={
                     "reason": "non_accpeted_currency",
-                    "currency": notification["mc_currency"],
+                    "currency": donation_currency,
                     "accepted_currencies": ACCEPTED_CURRENCIES,
                     "request_id": x_request_id,
                 },
@@ -194,9 +192,9 @@ async def process_notification(
         donation_months = int(notification["option_selection1"].removesuffix(" months"))
 
         if donation_tier == "supporter":
-            donation_price = calculate_supporter_price(donation_months)
+            calculated_price = calculate_supporter_price(donation_months)
         elif donation_tier == "premium":
-            donation_price = calculate_premium_price(donation_months)
+            calculated_price = calculate_premium_price(donation_months)
         else:
             logging.error(
                 "Failed to process IPN notification",
@@ -208,24 +206,23 @@ async def process_notification(
             )
             return Response(status_code=200)
 
-        # copy hanayo rounding behaviour
-        donation_price = round(donation_price, 2)
+        # copy hanayo rounding behaviour on price
+        calculated_price = round(calculated_price, 2)
 
-        if float(notification["mc_gross"]) != donation_price:
+        donation_amount = float(notification["mc_gross"])
+        if donation_amount != calculated_price:
             logging.error(
                 "Failed to process IPN notification",
                 extra={
                     "reason": "invalid_donation_amount",
-                    "amount": notification["mc_gross"],
-                    "donation_price": donation_price,
+                    "donation_amount": donation_amount,
+                    "calculated_price": calculated_price,
                     "request_id": x_request_id,
                 },
             )
             return Response(status_code=200)
 
-        tier_privileges_bits = PRIVILEGE_BITS_MAPPING[donation_tier]
-
-        new_privileges = user["privileges"] | tier_privileges_bits
+        new_privileges = user["privileges"] | PRIVILEGE_BITS_MAPPING[donation_tier]
         new_donor_expire = min(
             (1 << 31) - 1,  # i32 max
             max(user["donor_expire"], time.time())
@@ -274,11 +271,11 @@ async def process_notification(
                 "username": username,
                 "donation_tier": donation_tier,
                 "donation_months": donation_months,
+                "donation_amount": donation_amount,
+                "donation_currency": donation_currency,
                 "new_privileges": new_privileges,
                 "new_donor_expiry": new_donor_expire,
                 "badge_changes": badge_changes,
-                "amount": donation_price,
-                "currency": notification["mc_currency"],
                 "transaction_id": transaction_id,
                 "request_id": x_request_id,
             },
@@ -297,8 +294,10 @@ async def process_notification(
                 for badge in final_badges:
                     await user_badges.insert(user_id, badge["badge"])
 
-        # TODO: store transaction as processed in database
-        seen_transactions.add(transaction_id)
+                await notifications.insert(
+                    transaction_id=transaction_id,
+                    notification=notification,
+                )
 
     elif response.text == "INVALID":
         logging.warning(
