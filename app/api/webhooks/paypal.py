@@ -67,7 +67,7 @@ async def process_notification(
             logging.warning(
                 "Failed to process IPN notification",
                 extra={
-                    "reason": "non_completed_transaction",
+                    "reason": "incomplete_payment",
                     "payment_status": notification["payment_status"],
                     "request_id": x_request_id,
                 },
