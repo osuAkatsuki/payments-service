@@ -209,19 +209,20 @@ async def process_notification(
             },
         )
 
-        await clients.database.execute(
-            query="""\
-                UPDATE users
-                   SET privileges = privileges | :privileges,
-                       donor_expire = :donor_expire
-                 WHERE id = :user_id
-            """,
-            values={
-                "privileges": new_privileges,
-                "donor_expire": new_donor_expiry,
-                "user_id": user["id"],
-            },
-        )
+        if settings.SHOULD_WRITE_TO_USERS_DB:
+            await clients.database.execute(
+                query="""\
+                    UPDATE users
+                    SET privileges = privileges | :privileges,
+                        donor_expire = :donor_expire
+                    WHERE id = :user_id
+                """,
+                values={
+                    "privileges": new_privileges,
+                    "donor_expire": new_donor_expiry,
+                    "user_id": user["id"],
+                },
+            )
 
         # TODO: store transaction as processed in database
         seen_transactions.add(transaction_id)
