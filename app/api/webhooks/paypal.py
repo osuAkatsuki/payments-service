@@ -23,12 +23,11 @@ PAYPAL_VERIFY_URL = (
 
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(request: Request):
+    request_data = urllib.parse.parse_qs((await request.body()).decode())
+
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
-        params=(
-            urllib.parse.parse_qs((await request.body()).decode())
-            | {"cmd": "_notify-validate"}
-        ),
+        params=request_data | {"cmd": "_notify-validate"},
         headers={
             "content-type": "application/x-www-form-urlencoded",
             "user-agent": "Python-IPN-Verification-Script",
@@ -40,14 +39,14 @@ async def process_notification(request: Request):
         logging.info(
             "PayPal IPN verified",
             extra={
-                "request_body": await request.json(),
+                "request_data": request_data,
             },
         )
     elif response.text == "INVALID":
         logging.warning(
             "PayPal IPN invalid",
             extra={
-                "request_body": await request.json(),
+                "request_data": request_data,
             },
         )
     else:
@@ -55,7 +54,7 @@ async def process_notification(request: Request):
             "PayPal IPN verification status unknown",
             extra={
                 "response_text": response.text,
-                "request_body": await request.json(),
+                "request_data": request_data,
             },
         )
         return Response(status_code=400)
