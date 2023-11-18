@@ -38,8 +38,8 @@ async def partial_update(
     await clients.database.execute(
         query=f"""\
             UPDATE users
-            SET donor_expire = COALESCE(donor_expire, :donor_expire),
-                privileges = COALESCE(privileges, :privileges)
+            SET donor_expire = COALESCE(:donor_expire, donor_expire),
+                privileges = COALESCE(:privileges, privileges)
             WHERE id = :user_id
         """,
         values={
