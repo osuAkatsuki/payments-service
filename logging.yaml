@@ -1,8 +1,12 @@
 version: 1
 disable_existing_loggers: true
 loggers:
-  app_logger:
-    level: INFO
+  httpx:
+    level: WARNING
+    handlers: [console]
+    propagate: no
+  httpcore:
+    level: WARNING
     handlers: [console]
     propagate: no
 handlers:
