@@ -27,9 +27,8 @@ async def process_notification(request: Request):
     request_data = request_body.decode("utf-8")
 
     print("req body raw", request_body)
-    response = await clients.http.post(
+    response = await clients.http.get(
         url=PAYPAL_VERIFY_URL + "?" + "cmd=_notify-validate" + "&" + request_data,
-        headers={"content-type": "application/x-www-form-urlencoded"},
         # content="cmd=_notify-validate&" + request_data,
     )
     response.raise_for_status()

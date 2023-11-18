@@ -1,0 +1,4 @@
+cmd=_notify-validate&payment_type=echeck&payment_date=23:08:02 Nov 16, 2023 PST&payment_status=Completed&address_status=confirmed&payer_status=verified&first_name=Joshua&last_name=Smith&payer_email=buyer@paypalsandbox.com&payer_id=TESTBUYERID01&address_name=Joshua Smith&address_country=United States&address_country_code=US&address_zip=95131&address_state=CA&address_city=San Jose&address_street=123 any street&business=seller@paypalsandbox.com&receiver_email=seller@paypalsandbox.com&receiver_id=seller@paypalsandbox.com&residence_country=US&tax=2.02&mc_currency=USD&mc_fee=0.44&mc_gross=12.34&mc_gross_1=12.34&txn_id=729362919&notify_version=2.1&refund_reason_code=&receipt_id=&custom=xyz123&invoice=abc1234&test_ipn=1&verify_sign=ACrVLackCXKsJFINKb9V09xKjL2bADjwMjKc.z9-UgpLHBM3tfaWVvTf
+
+b'INVALID'
+OH NO
