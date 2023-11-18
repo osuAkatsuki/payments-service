@@ -111,10 +111,35 @@ async def process_notification(
             return Response(status_code=200)
 
         custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
-        user_id = custom_fields.get("user_id")
-        if user_id is not None:
-            user_id = int(user_id)
-        username = custom_fields.get("username")
+
+        if "user_id" in custom_fields:
+            user = await users.fetch_by_user_id(int(custom_fields["user_id"]))
+        elif "username" in custom_fields:
+            user = await users.fetch_by_username(custom_fields["username"])
+        else:
+            logging.error(
+                "Failed to process IPN notification",
+                extra={
+                    "reason": "no_user_identification",
+                    "request_id": x_request_id,
+                },
+            )
+            return Response(status_code=400)
+
+        if user is None:
+            logging.error(
+                "Failed to process IPN notification",
+                "User not found while attempting to distribute donation perks",
+                extra={
+                    "reason": "user_not_found",
+                    "custom_fields": custom_fields,
+                    "request_id": x_request_id,
+                },
+            )
+            return Response(status_code=400)
+
+        user_id = user["id"]
+        username = user["username"]
 
         # TODO: potentially clean this up
         donation_tier = notification["option_name2"].removeprefix(
@@ -152,35 +177,6 @@ async def process_notification(
             )
             return Response(status_code=200)
 
-        if user_id is not None:
-            user = await users.fetch_by_user_id(user_id)
-        elif username is not None:
-            user = await users.fetch_by_username(username)
-        else:
-            logging.error(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "no_user_identification",
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        if user is None:
-            logging.error(
-                "Failed to process IPN notification",
-                "User not found while attempting to distribute donation perks",
-                extra={
-                    "reason": "user_not_found",
-                    "user_id": user_id,
-                    "username": username,
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        user_id = user["id"]
-        username = user["username"]
         tier_privileges_bits = PRIVILEGE_BITS_MAPPING[donation_tier]
 
         new_privileges = user["privileges"] | tier_privileges_bits
