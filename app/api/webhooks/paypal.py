@@ -27,11 +27,11 @@ async def process_notification(request: Request):
 
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
-        params=request_data | {"cmd": "_notify-validate"},
         headers={
             "content-type": "application/x-www-form-urlencoded",
             "user-agent": "Python-IPN-Verification-Script",
         },
+        params=request_data | {"cmd": "_notify-validate"},
     )
     response.raise_for_status()
 
