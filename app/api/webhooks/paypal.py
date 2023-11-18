@@ -39,7 +39,13 @@ async def process_notification(request: Request):
     if response.text == "VERIFIED":
         logging.info("PayPal IPN verified", extra={"request_data": request_data})
     elif response.text == "INVALID":
-        logging.warning("PayPal IPN invalid", extra={"request_data": request_data})
+        logging.warning(
+            "PayPal IPN invalid",
+            extra={
+                "response_text": response.text,
+                "request_data": request_data,
+            },
+        )
         # fallthrough (do not let the client know of the invalidity)
     else:
         logging.error(
