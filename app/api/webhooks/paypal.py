@@ -1,12 +1,14 @@
 import time
+import uuid
+
 from fastapi import APIRouter
+from fastapi import Header
 from fastapi import Response
 from fastapi import Request
 
 from app import clients
 from app import settings
 
-import json
 import urllib.parse
 import logging
 
@@ -33,10 +35,6 @@ seen_transactions: set[str] = set()
 
 async def processs_donation() -> None:
     ...
-
-
-import uuid
-from fastapi import Header
 
 
 @router.post("/webhooks/paypal_ipn")
@@ -135,12 +133,12 @@ async def process_notification(
 
         if float(notification["mc_gross"]) != donation_price:
             logging.error(
-                "Invalid donation amount",
+                "Failed to process IPN notification",
                 extra={
                     "reason": "invalid_donation_amount",
-                    "notification": notification,
                     "amount": notification["mc_gross"],
                     "donation_price": donation_price,
+                    "notification": notification,
                 },
             )
             return Response(status_code=200)
@@ -156,8 +154,14 @@ async def process_notification(
         )
         if user is None:
             logging.error(
+                "Failed to process IPN notification",
                 "User not found while attempting to distribute donation perks",
-                extra={"user_id": user_id, "notification": notification},
+                extra={
+                    "reason": "user_not_found",
+                    "user_id": user_id,
+                    "username": username,
+                    "notification": notification,
+                },
             )
             return Response(status_code=400)
 
