@@ -14,3 +14,5 @@ APP_HOST = os.environ["APP_HOST"]
 APP_PORT = int(os.environ["APP_PORT"])
 
 CODE_HOTRELOAD = read_bool(os.environ["CODE_HOTRELOAD"])
+
+PAYPAL_BUSINESS_EMAIL = os.environ["PAYPAL_BUSINESS_EMAIL"]
