@@ -31,8 +31,19 @@ PRIVILEGE_MAPPING = {"supporter": 4, "premium": 8388608}
 seen_transactions: set[str] = set()
 
 
+async def processs_donation() -> None:
+    ...
+
+
+import uuid
+from fastapi import Header
+
+
 @router.post("/webhooks/paypal_ipn")
-async def process_notification(request: Request):
+async def process_notification(
+    request: Request,
+    x_request_id: str = Header(default_factory=uuid.uuid4),
+):
     request_params = urllib.parse.parse_qsl((await request.body()).decode())
     logging.info("Debug", extra={"notification": dict(request_params)})
 
@@ -46,14 +57,14 @@ async def process_notification(request: Request):
     notification = dict(request_params)
 
     if response.text == "VERIFIED":
-        logging.info(
-            "PayPal IPN verified",
-            extra={"notification": notification},
-        )
         if notification["payment_status"] != "Completed":
             logging.warning(
-                "Non completed transaction",
-                extra={"notification": notification},
+                "Failed to process IPN notification",
+                extra={
+                    "reason": "non_completed_transaction",
+                    "payment_status": notification["payment_status"],
+                    "notification": notification,
+                },
             )
             return Response(status_code=200)
 
@@ -61,32 +72,42 @@ async def process_notification(request: Request):
         transaction_id = notification["txn_id"]
         if transaction_id in seen_transactions:
             logging.warning(
-                "Transaction already processed",
-                extra={"notification": notification},
+                "Failed to process IPN notification",
+                extra={
+                    "reason": "transaction_already_processed",
+                    "transaction_id": transaction_id,
+                    "notification": notification,
+                },
             )
             return Response(status_code=200)
 
         if notification["business"] != settings.PAYPAL_BUSINESS_EMAIL:
             logging.warning(
-                "Wrong paypal business email",
-                extra={"notification": notification},
+                "Failed to process IPN notification",
+                extra={
+                    "reason": "wrong_paypal_business_email",
+                    "business": notification["business"],
+                    "expected_business": settings.PAYPAL_BUSINESS_EMAIL,
+                    "notification": notification,
+                },
             )
             return Response(status_code=200)
 
         if notification["mc_currency"] not in ACCEPTED_CURRENCIES:
             logging.warning(
-                "Wrong paypal currency",
-                extra={"notification": notification},
+                "Failed to process IPN notification",
+                extra={
+                    "reason": "non_accpeted_currency",
+                    "currency": notification["mc_currency"],
+                    "accepted_currencies": ACCEPTED_CURRENCIES,
+                    "notification": notification,
+                },
             )
             return Response(status_code=200)
 
         custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
-        user_id = custom_fields["user_id"]
-
-        logging.info(
-            "Granting donation perks to user",
-            extra={"user_id": user_id, "notification": notification},
-        )
+        user_id = custom_fields.get("user_id")
+        username = custom_fields.get("username")
 
         # TODO: potentially clean this up
         donation_tier = notification["option_name2"].removeprefix(
@@ -95,34 +116,43 @@ async def process_notification(request: Request):
         donation_months = int(notification["option_selection1"].removesuffix(" months"))
 
         if donation_tier == "supporter":
-            expected_cost = (donation_months * 30 * 0.2) ** 0.72
+            donation_price = (donation_months * 30 * 0.2) ** 0.72
         elif donation_tier == "premium":
-            expected_cost = (donation_months * 68 * 0.15) ** 0.93
+            donation_price = (donation_months * 68 * 0.15) ** 0.93
         else:
             logging.error(
-                "Invalid donation tier",
-                extra={"notification": notification},
+                "Failed to process IPN notification",
+                extra={
+                    "reason": "invalid_donation_tier",
+                    "donation_tier": donation_tier,
+                    "notification": notification,
+                },
             )
             return Response(status_code=200)
 
         # copy hanayo rounding behaviour
-        expected_cost = round(expected_cost, 2)
+        donation_price = round(donation_price, 2)
 
-        if float(notification["mc_gross"]) != expected_cost:
+        if float(notification["mc_gross"]) != donation_price:
             logging.error(
-                "Invalid donation cost",
+                "Invalid donation amount",
                 extra={
+                    "reason": "invalid_donation_amount",
                     "notification": notification,
-                    "expected_cost": expected_cost,
+                    "amount": notification["mc_gross"],
+                    "donation_price": donation_price,
                 },
             )
             return Response(status_code=200)
 
         user = await clients.database.fetch_one(
             query="""\
-                SELECT * FROM users WHERE id = :user_id
+                SELECT *
+                  FROM users
+                 WHERE COALESCE(id, :user_id)
+                   AND username = COALESCE(username, :username)
             """,
-            values={"user_id": user_id},
+            values={"user_id": user_id, "username": username},
         )
         if user is None:
             logging.error(
@@ -130,6 +160,9 @@ async def process_notification(request: Request):
                 extra={"user_id": user_id, "notification": notification},
             )
             return Response(status_code=400)
+
+        user_id = user["id"]
+        username = user["username"]
 
         new_privileges = PRIVILEGE_MAPPING[donation_tier]
         new_donor_expiry = max(user["donor_expire"], time.time()) + donation_months * (
@@ -139,6 +172,20 @@ async def process_notification(request: Request):
         # TODO: if the user already has a donation tier, ensure we are not
         #       upgrading or downgrading them by converting the value of the
         #       different perks against eachother.
+
+        logging.info(
+            "Granting donation perks to user",
+            extra={
+                "user_id": user_id,
+                "username": username,
+                "donation_tier": donation_tier,
+                "donation_months": donation_months,
+                "new_privileges": new_privileges,
+                "new_donor_expiry": new_donor_expiry,
+                "amount": donation_price,
+                "notification": notification,
+            },
+        )
 
         await clients.database.execute(
             query="""\
@@ -150,7 +197,7 @@ async def process_notification(request: Request):
             values={
                 "privileges": new_privileges,
                 "donor_expire": new_donor_expiry,
-                "user_id": user_id,
+                "user_id": user["id"],
             },
         )
 
