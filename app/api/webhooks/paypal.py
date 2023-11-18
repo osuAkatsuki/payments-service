@@ -9,13 +9,14 @@ import logging
 
 router = APIRouter()
 
-PAYPAL_VERIFY_URL_PROD = "https://ipnpb.paypal.com/cgi-bin/webscr"
+# PAYPAL_VERIFY_URL_PROD = "https://ipnpb.paypal.com/cgi-bin/webscr"
 PAYPAL_VERIFY_URL_TEST = "https://ipnpb.sandbox.paypal.com/cgi-bin/webscr"
 
 PAYPAL_VERIFY_URL = (
-    PAYPAL_VERIFY_URL_PROD
-    if settings.APP_ENV == "production"
-    else PAYPAL_VERIFY_URL_TEST
+    # PAYPAL_VERIFY_URL_PROD
+    # if settings.APP_ENV == "production"
+    # else
+    PAYPAL_VERIFY_URL_TEST
 )
 
 
