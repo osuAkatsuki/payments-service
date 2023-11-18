@@ -12,6 +12,8 @@ from app import settings
 import urllib.parse
 import logging
 
+from repositories import users
+
 
 router = APIRouter()
 
@@ -117,6 +119,8 @@ async def process_notification(
 
         custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
         user_id = custom_fields.get("user_id")
+        if user_id is not None:
+            user_id = int(user_id)
         username = custom_fields.get("username")
 
         # TODO: potentially clean this up
@@ -157,15 +161,21 @@ async def process_notification(
             )
             return Response(status_code=200)
 
-        user = await clients.database.fetch_one(
-            query="""\
-                SELECT *
-                  FROM users
-                 WHERE COALESCE(id, :user_id)
-                   AND username = COALESCE(username, :username)
-            """,
-            values={"user_id": user_id, "username": username},
-        )
+        if user_id is not None:
+            user = await users.fetch_by_user_id(user_id)
+        elif username is not None:
+            user = await users.fetch_by_username(username)
+        else:
+            logging.error(
+                "Failed to process IPN notification",
+                extra={
+                    "reason": "no_user_identification",
+                    "notification": notification,
+                    "request_id": x_request_id,
+                },
+            )
+            return Response(status_code=400)
+
         if user is None:
             logging.error(
                 "Failed to process IPN notification",
