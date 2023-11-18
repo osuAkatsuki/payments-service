@@ -80,7 +80,7 @@ async def process_notification(request: Request):
             )
             return Response(status_code=200)
 
-        custom_fields = json.loads(notification["custom"])
+        custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
         user_id = custom_fields["user_id"]
 
         logging.info(
