@@ -189,7 +189,9 @@ async def process_notification(
         donation_tier = notification["option_name2"].removeprefix(
             "Akatsuki user to give ",
         )
-        donation_months = int(notification["option_selection1"].removesuffix(" months"))
+        donation_months = int(
+            notification["option_selection1"].removesuffix("s").removesuffix(" month"),
+        )
 
         if donation_tier == "supporter":
             calculated_price = calculate_supporter_price(donation_months)
