@@ -23,6 +23,8 @@ PAYPAL_VERIFY_URL = (
 )
 
 ACCEPTED_CURRENCIES = {"EUR"}
+if settings.APP_ENV != "production":
+    ACCEPTED_CURRENCIES.add("USD")
 
 
 @router.post("/webhooks/paypal_ipn")
