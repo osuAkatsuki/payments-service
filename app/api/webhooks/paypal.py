@@ -103,7 +103,10 @@ async def process_notification(
             return Response(status_code=400)
 
         transaction_id = notification["txn_id"]
-        if await notifications.already_processed(transaction_id):
+        if (
+            settings.SHOULD_ENFORCE_UNIQUE_PAYMENTS
+            and await notifications.already_processed(transaction_id)
+        ):
             logging.warning(
                 "Failed to process IPN notification",
                 extra={
