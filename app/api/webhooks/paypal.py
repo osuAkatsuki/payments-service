@@ -36,10 +36,16 @@ BADGE_LIMIT = 6
 SUPPORTER_BADGE_ID = 36
 PREMIUM_BADGE_ID = 59
 
+I32_MAX = (1 << 31) - 1
+
 
 class Privileges:
     SUPPORTER = 4
     PREMIUM = 8388608
+
+
+def months_to_seconds(months: int) -> float:
+    return months * (60 * 60 * 24 * 30)
 
 
 def calculate_supporter_price(months: int) -> float:
@@ -48,6 +54,16 @@ def calculate_supporter_price(months: int) -> float:
 
 def calculate_premium_price(months: int) -> float:
     return round((months * 68 * 0.15) ** 0.93, 2)
+
+
+def premium_to_supporter(donor_time_remaining: float) -> float:
+    exchange_rate = calculate_premium_price(1) / calculate_supporter_price(1)
+    return donor_time_remaining * exchange_rate
+
+
+def supporter_to_premium(donor_time_remaining: float) -> float:
+    exchange_rate = calculate_supporter_price(1) / calculate_premium_price(1)
+    return donor_time_remaining * exchange_rate
 
 
 @router.post("/webhooks/paypal_ipn")
@@ -196,44 +212,43 @@ async def process_notification(
             )
             return Response(status_code=400)
 
-        exchange_rate = calculate_premium_price(1) / calculate_supporter_price(1)
-
         privileges = user["privileges"]
-        donor_time_remaining = max(user["donor_expire"], time.time()) - time.time()
+        donor_seconds_remaining = max(user["donor_expire"], time.time()) - time.time()
         user_badge_ids = [b["badge"] for b in await user_badges.fetch_all(user_id)]
 
         if donation_tier == "premium":
-            privileges |= Privileges.SUPPORTER
-            privileges |= Privileges.PREMIUM
-
+            # 1. convert any existing supporter to premium
             if has_supporter:
-                donor_time_remaining /= exchange_rate
+                donor_seconds_remaining = supporter_to_premium(donor_seconds_remaining)
+                if SUPPORTER_BADGE_ID in user_badge_ids:
+                    user_badge_ids.remove(SUPPORTER_BADGE_ID)
 
-            donor_time_remaining += donation_months * (60 * 60 * 24 * 30)
-
-            if SUPPORTER_BADGE_ID in user_badge_ids:
-                user_badge_ids.remove(SUPPORTER_BADGE_ID)
+            # 2. add the new donation
+            privileges |= Privileges.PREMIUM | Privileges.SUPPORTER
+            donor_seconds_remaining += months_to_seconds(donation_months)
             if PREMIUM_BADGE_ID not in user_badge_ids:
                 user_badge_ids.append(PREMIUM_BADGE_ID)
 
         elif donation_tier == "supporter":
-            privileges |= Privileges.SUPPORTER
-            privileges &= ~Privileges.PREMIUM
-
+            # 1. convert any existing premium to supporter
             if has_premium:
-                donor_time_remaining *= exchange_rate
+                privileges &= ~Privileges.PREMIUM
+                donor_seconds_remaining = premium_to_supporter(donor_seconds_remaining)
+                if PREMIUM_BADGE_ID in user_badge_ids:
+                    user_badge_ids.remove(PREMIUM_BADGE_ID)
 
-            donor_time_remaining += donation_months * (60 * 60 * 24 * 30)
-
-            if PREMIUM_BADGE_ID in user_badge_ids:
-                user_badge_ids.remove(PREMIUM_BADGE_ID)
+            # 2. add the new donation
+            privileges |= Privileges.SUPPORTER
+            donor_seconds_remaining += months_to_seconds(donation_months)
             if SUPPORTER_BADGE_ID not in user_badge_ids:
                 user_badge_ids.append(SUPPORTER_BADGE_ID)
 
-        donor_expire = min(
-            (1 << 31) - 1,  # i32 max
-            donor_time_remaining + time.time(),
-        )
+        donor_expire = min(donor_seconds_remaining + time.time(), I32_MAX)
+        donor_expire = int(donor_expire)
+
+        # remove any badges beyond the limit
+        # (these will always be ones we added)
+        user_badge_ids = user_badge_ids[:BADGE_LIMIT]
 
         logging.info(
             "Granting donation perks to user",
