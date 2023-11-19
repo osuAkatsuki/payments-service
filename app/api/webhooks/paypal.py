@@ -203,12 +203,13 @@ async def process_notification(
         user_badge_ids = [b["badge"] for b in await user_badges.fetch_all(user_id)]
 
         if donation_tier == "premium":
-            if has_supporter:
-                privileges |= Privileges.SUPPORTER
-                privileges |= Privileges.PREMIUM
+            privileges |= Privileges.SUPPORTER
+            privileges |= Privileges.PREMIUM
 
+            if has_supporter:
                 donor_time_remaining /= exchange_rate
-                donor_time_remaining += donation_months * (60 * 60 * 24 * 30)
+
+            donor_time_remaining += donation_months * (60 * 60 * 24 * 30)
 
             if SUPPORTER_BADGE_ID in user_badge_ids:
                 user_badge_ids.remove(SUPPORTER_BADGE_ID)
@@ -216,12 +217,13 @@ async def process_notification(
                 user_badge_ids.append(PREMIUM_BADGE_ID)
 
         elif donation_tier == "supporter":
-            if has_premium:
-                privileges |= Privileges.SUPPORTER
-                privileges &= ~Privileges.PREMIUM
+            privileges |= Privileges.SUPPORTER
+            privileges &= ~Privileges.PREMIUM
 
+            if has_premium:
                 donor_time_remaining *= exchange_rate
-                donor_time_remaining += donation_months * (60 * 60 * 24 * 30)
+
+            donor_time_remaining += donation_months * (60 * 60 * 24 * 30)
 
             if PREMIUM_BADGE_ID in user_badge_ids:
                 user_badge_ids.remove(PREMIUM_BADGE_ID)
