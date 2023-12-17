@@ -310,7 +310,7 @@ async def process_notification(
             calculated_price=calculated_price,
             request_id=x_request_id,
         )
-        return Response(status_code=200
+        return Response(status_code=200)
 
     privileges = user["privileges"]
     donor_seconds_remaining = max(user["donor_expire"], time.time()) - time.time()
