@@ -2,6 +2,8 @@ import logging
 import time
 import urllib.parse
 import uuid
+from datetime import datetime
+from typing import Any
 
 from discord_webhook import AsyncDiscordWebhook
 from discord_webhook.webhook import DiscordEmbed
@@ -66,6 +68,18 @@ def premium_to_supporter(donor_time_remaining: float) -> float:
 def supporter_to_premium(donor_time_remaining: float) -> float:
     exchange_rate = calculate_supporter_price(1) / calculate_premium_price(1)
     return donor_time_remaining * exchange_rate
+
+
+def readable_privileges(privileges: int) -> str:
+    if privileges == 0:
+        return "None"
+
+    parts: list[str] = []
+    if privileges & Privileges.SUPPORTER != 0:
+        parts.append("Supporter")
+    if privileges & Privileges.PREMIUM != 0:
+        parts.append("Premium")
+    return ", ".join(parts)
 
 
 @router.post("/webhooks/paypal_ipn")
@@ -289,20 +303,29 @@ async def process_notification(
         },
     )
 
+    fields: list[dict[str, Any]] = [
+        {"name": "User ID", "value": user_id},
+        {"name": "Username", "value": username},
+        {"name": "Donation Tier", "value": donation_tier},
+        {"name": "Donation Months", "value": donation_months},
+        {"name": "Donation Amount", "value": donation_amount},
+        {"name": "Donation Currency", "value": donation_currency},
+        {"name": "New Privileges", "value": readable_privileges(privileges)},
+        {
+            "name": "New Donor Expire",
+            "value": datetime.fromtimestamp(donor_expire).isoformat(),
+        },
+        {"name": "New User Badges", "value": user_badge_ids},
+        {"name": "Transaction ID", "value": transaction_id},
+    ]
     webhook = AsyncDiscordWebhook(
         url=settings.DISCORD_WEBHOOK_URL,
-        content="Granting donation perks to user",
+        content="** **",
         embeds=[
-            DiscordEmbed(title="User ID", description=f"{user_id}"),
-            DiscordEmbed(title="Username", description=f"{username}"),
-            DiscordEmbed(title="Donation Tier", description=f"{donation_tier}"),
-            DiscordEmbed(title="Donation Months", description=f"{donation_months}"),
-            DiscordEmbed(title="Donation Amount", description=f"{donation_amount}"),
-            DiscordEmbed(title="Donation Currency", description=f"{donation_currency}"),
-            DiscordEmbed(title="New Privileges", description=f"{privileges}"),
-            DiscordEmbed(title="New Donor Expire", description=f"{donor_expire}"),
-            DiscordEmbed(title="New User Badges", description=f"{user_badge_ids}"),
-            DiscordEmbed(title="Transaction ID", description=f"{transaction_id}"),
+            DiscordEmbed(
+                title="Granting donation perks to user",
+                fields=[f | {"inline": True} for f in fields],
+            ),
         ],
     )
     await webhook.execute()
