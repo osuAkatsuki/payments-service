@@ -160,7 +160,7 @@ async def process_notification(
             payment_status=notification["payment_status"],
             request_id=x_request_id,
         )
-        return Response(status_code=400)
+        return Response(status_code=200)
 
     transaction_id = notification["txn_id"]
     if (
@@ -198,7 +198,7 @@ async def process_notification(
             expected_business=settings.PAYPAL_BUSINESS_EMAIL,
             request_id=x_request_id,
         )
-        return Response(status_code=400)
+        return Response(status_code=200)
 
     donation_currency = notification["mc_currency"]
     if donation_currency not in ACCEPTED_CURRENCIES:
@@ -217,7 +217,7 @@ async def process_notification(
             accepted_currencies=ACCEPTED_CURRENCIES,
             request_id=x_request_id,
         )
-        return Response(status_code=400)
+        return Response(status_code=200)
 
     custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
 
@@ -232,12 +232,12 @@ async def process_notification(
                 "reason": "no_user_identification",
                 "request_id": x_request_id,
             },
-        )
+        )=
         schedule_failure_webhook(
             reason="no_user_identification",
             request_id=x_request_id,
         )
-        return Response(status_code=400)
+        return Response(status_code=200)
 
     if user is None:
         logging.error(
@@ -253,7 +253,7 @@ async def process_notification(
             custom_fields=custom_fields,
             request_id=x_request_id,
         )
-        return Response(status_code=400)
+        return Response(status_code=200)
 
     user_id = user["id"]
     username = user["username"]
@@ -291,7 +291,7 @@ async def process_notification(
             donation_tier=donation_tier,
             request_id=x_request_id,
         )
-        return Response(status_code=400)
+        return Response(status_code=200)
 
     donation_amount = float(notification["mc_gross"])
     if donation_amount != calculated_price:
@@ -310,7 +310,7 @@ async def process_notification(
             calculated_price=calculated_price,
             request_id=x_request_id,
         )
-        return Response(status_code=400)
+        return Response(status_code=200
 
     privileges = user["privileges"]
     donor_seconds_remaining = max(user["donor_expire"], time.time()) - time.time()
