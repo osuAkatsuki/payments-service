@@ -3,6 +3,8 @@ import time
 import urllib.parse
 import uuid
 
+from discord_webhook import AsyncDiscordWebhook
+from discord_webhook.webhook import DiscordEmbed
 from fastapi import APIRouter
 from fastapi import Header
 from fastapi import Request
@@ -286,6 +288,24 @@ async def process_notification(
             "request_id": x_request_id,
         },
     )
+
+    webhook = AsyncDiscordWebhook(
+        url=settings.DISCORD_WEBHOOK_URL,
+        content="Granting donation perks to user",
+        embeds=[
+            DiscordEmbed(title="User ID", description=f"{user_id}"),
+            DiscordEmbed(title="Username", description=f"{username}"),
+            DiscordEmbed(title="Donation Tier", description=f"{donation_tier}"),
+            DiscordEmbed(title="Donation Months", description=f"{donation_months}"),
+            DiscordEmbed(title="Donation Amount", description=f"{donation_amount}"),
+            DiscordEmbed(title="Donation Currency", description=f"{donation_currency}"),
+            DiscordEmbed(title="New Privileges", description=f"{privileges}"),
+            DiscordEmbed(title="New Donor Expire", description=f"{donor_expire}"),
+            DiscordEmbed(title="New User Badges", description=f"{user_badge_ids}"),
+            DiscordEmbed(title="Transaction ID", description=f"{transaction_id}"),
+        ],
+    )
+    await webhook.execute()
 
     # make writes to the database
     if settings.SHOULD_WRITE_TO_USERS_DB:
