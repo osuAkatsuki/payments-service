@@ -89,15 +89,22 @@ async def process_notification(
     response.raise_for_status()
 
     if response.text != "VERIFIED":
+        will_grant_donor = not settings.SHOULD_REQUIRE_IPN_VERIFICATION
         logging.warning(
             "PayPal IPN invalid",
             extra={
                 "response_text": response.text,
+                "will_grant_donor": will_grant_donor,
                 "request_id": x_request_id,
             },
         )
-        # fallthrough (do not let the client know of the invalidity)
-        return Response(status_code=400)
+
+        if settings.SHOULD_REQUIRE_IPN_VERIFICATION:
+            # Do not process the request any further.
+            # Return a 2xx code to prevent PayPal from retrying.
+            return Response(status_code=200)
+        else:
+            pass
 
     notification = dict(request_params)
 
