@@ -88,209 +88,7 @@ async def process_notification(
     )
     response.raise_for_status()
 
-    notification = dict(request_params)
-
-    if response.text == "VERIFIED":
-        if notification["payment_status"] != "Completed":
-            logging.warning(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "incomplete_payment",
-                    "payment_status": notification["payment_status"],
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        transaction_id = notification["txn_id"]
-        if (
-            settings.SHOULD_ENFORCE_UNIQUE_PAYMENTS
-            and await notifications.already_processed(transaction_id)
-        ):
-            logging.warning(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "transaction_already_processed",
-                    "transaction_id": transaction_id,
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=200)
-
-        if notification["business"] != settings.PAYPAL_BUSINESS_EMAIL:
-            logging.warning(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "wrong_paypal_business_email",
-                    "business": notification["business"],
-                    "expected_business": settings.PAYPAL_BUSINESS_EMAIL,
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        donation_currency = notification["mc_currency"]
-        if donation_currency not in ACCEPTED_CURRENCIES:
-            logging.warning(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "non_accpeted_currency",
-                    "currency": donation_currency,
-                    "accepted_currencies": ACCEPTED_CURRENCIES,
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
-
-        if "userid" in custom_fields:
-            user = await users.fetch_by_user_id(int(custom_fields["userid"]))
-        elif "username" in custom_fields:
-            user = await users.fetch_by_username(custom_fields["username"])
-        else:
-            logging.error(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "no_user_identification",
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        if user is None:
-            logging.error(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "user_not_found",
-                    "custom_fields": custom_fields,
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        user_id = user["id"]
-        username = user["username"]
-
-        has_supporter = user["privileges"] & Privileges.SUPPORTER != 0
-        has_premium = user["privileges"] & Privileges.PREMIUM != 0
-
-        # TODO: potentially clean this up
-        donation_tier = (
-            notification["option_name2"]
-            .removeprefix(
-                "Akatsuki user to give ",
-            )
-            .removesuffix(":")
-        )
-        donation_months = int(
-            notification["option_selection1"].removesuffix("s").removesuffix(" month"),
-        )
-
-        if donation_tier == "supporter":
-            calculated_price = calculate_supporter_price(donation_months)
-        elif donation_tier == "premium":
-            calculated_price = calculate_premium_price(donation_months)
-        else:
-            logging.error(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "invalid_donation_tier",
-                    "donation_tier": donation_tier,
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        donation_amount = float(notification["mc_gross"])
-        if donation_amount != calculated_price:
-            logging.error(
-                "Failed to process IPN notification",
-                extra={
-                    "reason": "invalid_donation_amount",
-                    "donation_amount": donation_amount,
-                    "calculated_price": calculated_price,
-                    "request_id": x_request_id,
-                },
-            )
-            return Response(status_code=400)
-
-        privileges = user["privileges"]
-        donor_seconds_remaining = max(user["donor_expire"], time.time()) - time.time()
-        user_badge_ids = [b["badge"] for b in await user_badges.fetch_all(user_id)]
-
-        if donation_tier == "premium":
-            # 1. convert any existing supporter to premium
-            if has_supporter:
-                donor_seconds_remaining = supporter_to_premium(donor_seconds_remaining)
-                if SUPPORTER_BADGE_ID in user_badge_ids:
-                    user_badge_ids.remove(SUPPORTER_BADGE_ID)
-
-            # 2. add the new donation
-            privileges |= Privileges.PREMIUM | Privileges.SUPPORTER
-            donor_seconds_remaining += months_to_seconds(donation_months)
-            if PREMIUM_BADGE_ID not in user_badge_ids:
-                user_badge_ids.append(PREMIUM_BADGE_ID)
-
-        elif donation_tier == "supporter":
-            # 1. convert any existing premium to supporter
-            if has_premium:
-                privileges &= ~Privileges.PREMIUM
-                donor_seconds_remaining = premium_to_supporter(donor_seconds_remaining)
-                if PREMIUM_BADGE_ID in user_badge_ids:
-                    user_badge_ids.remove(PREMIUM_BADGE_ID)
-
-            # 2. add the new donation
-            privileges |= Privileges.SUPPORTER
-            donor_seconds_remaining += months_to_seconds(donation_months)
-            if SUPPORTER_BADGE_ID not in user_badge_ids:
-                user_badge_ids.append(SUPPORTER_BADGE_ID)
-
-        donor_expire = min(donor_seconds_remaining + time.time(), I32_MAX)
-        donor_expire = int(donor_expire)
-
-        # remove any badges beyond the limit
-        # (these will always be ones we added)
-        user_badge_ids = user_badge_ids[:BADGE_LIMIT]
-
-        logging.info(
-            "Granting donation perks to user",
-            extra={
-                "user_id": user_id,
-                "username": username,
-                "donation_tier": donation_tier,
-                "donation_months": donation_months,
-                "donation_amount": donation_amount,
-                "donation_currency": donation_currency,
-                "new_privileges": privileges,
-                "new_donor_expire": donor_expire,
-                "new_user_badges": user_badge_ids,  # TODO: nicer format
-                "transaction_id": transaction_id,
-                "request_id": x_request_id,
-            },
-        )
-
-        # make writes to the database
-        if settings.SHOULD_WRITE_TO_USERS_DB:
-            async with clients.database.transaction():
-                await users.partial_update(
-                    user_id=user_id,
-                    privileges=privileges,
-                    donor_expire=donor_expire,
-                )
-
-                await user_badges.delete_by_user_id(user_id)
-                for badge_id in user_badge_ids:
-                    await user_badges.insert(user_id, badge_id)
-
-                await notifications.insert(
-                    transaction_id=transaction_id,
-                    notification=notification,
-                )
-
-        return Response(status_code=200)
-
-    elif response.text == "INVALID":
+    if response.text != "VERIFIED":
         logging.warning(
             "PayPal IPN invalid",
             extra={
@@ -301,12 +99,203 @@ async def process_notification(
         # fallthrough (do not let the client know of the invalidity)
         return Response(status_code=400)
 
-    else:
-        logging.error(
-            "PayPal IPN verification status unknown",
+    notification = dict(request_params)
+
+    if notification["payment_status"] != "Completed":
+        logging.warning(
+            "Failed to process IPN notification",
             extra={
-                "response_text": response.text,
+                "reason": "incomplete_payment",
+                "payment_status": notification["payment_status"],
                 "request_id": x_request_id,
             },
         )
         return Response(status_code=400)
+
+    transaction_id = notification["txn_id"]
+    if (
+        settings.SHOULD_ENFORCE_UNIQUE_PAYMENTS
+        and await notifications.already_processed(transaction_id)
+    ):
+        logging.warning(
+            "Failed to process IPN notification",
+            extra={
+                "reason": "transaction_already_processed",
+                "transaction_id": transaction_id,
+                "request_id": x_request_id,
+            },
+        )
+        return Response(status_code=200)
+
+    if notification["business"] != settings.PAYPAL_BUSINESS_EMAIL:
+        logging.warning(
+            "Failed to process IPN notification",
+            extra={
+                "reason": "wrong_paypal_business_email",
+                "business": notification["business"],
+                "expected_business": settings.PAYPAL_BUSINESS_EMAIL,
+                "request_id": x_request_id,
+            },
+        )
+        return Response(status_code=400)
+
+    donation_currency = notification["mc_currency"]
+    if donation_currency not in ACCEPTED_CURRENCIES:
+        logging.warning(
+            "Failed to process IPN notification",
+            extra={
+                "reason": "non_accpeted_currency",
+                "currency": donation_currency,
+                "accepted_currencies": ACCEPTED_CURRENCIES,
+                "request_id": x_request_id,
+            },
+        )
+        return Response(status_code=400)
+
+    custom_fields = dict(urllib.parse.parse_qsl(notification["custom"]))
+
+    if "userid" in custom_fields:
+        user = await users.fetch_by_user_id(int(custom_fields["userid"]))
+    elif "username" in custom_fields:
+        user = await users.fetch_by_username(custom_fields["username"])
+    else:
+        logging.error(
+            "Failed to process IPN notification",
+            extra={
+                "reason": "no_user_identification",
+                "request_id": x_request_id,
+            },
+        )
+        return Response(status_code=400)
+
+    if user is None:
+        logging.error(
+            "Failed to process IPN notification",
+            extra={
+                "reason": "user_not_found",
+                "custom_fields": custom_fields,
+                "request_id": x_request_id,
+            },
+        )
+        return Response(status_code=400)
+
+    user_id = user["id"]
+    username = user["username"]
+
+    has_supporter = user["privileges"] & Privileges.SUPPORTER != 0
+    has_premium = user["privileges"] & Privileges.PREMIUM != 0
+
+    # TODO: potentially clean this up
+    donation_tier = (
+        notification["option_name2"]
+        .removeprefix(
+            "Akatsuki user to give ",
+        )
+        .removesuffix(":")
+    )
+    donation_months = int(
+        notification["option_selection1"].removesuffix("s").removesuffix(" month"),
+    )
+
+    if donation_tier == "supporter":
+        calculated_price = calculate_supporter_price(donation_months)
+    elif donation_tier == "premium":
+        calculated_price = calculate_premium_price(donation_months)
+    else:
+        logging.error(
+            "Failed to process IPN notification",
+            extra={
+                "reason": "invalid_donation_tier",
+                "donation_tier": donation_tier,
+                "request_id": x_request_id,
+            },
+        )
+        return Response(status_code=400)
+
+    donation_amount = float(notification["mc_gross"])
+    if donation_amount != calculated_price:
+        logging.error(
+            "Failed to process IPN notification",
+            extra={
+                "reason": "invalid_donation_amount",
+                "donation_amount": donation_amount,
+                "calculated_price": calculated_price,
+                "request_id": x_request_id,
+            },
+        )
+        return Response(status_code=400)
+
+    privileges = user["privileges"]
+    donor_seconds_remaining = max(user["donor_expire"], time.time()) - time.time()
+    user_badge_ids = [b["badge"] for b in await user_badges.fetch_all(user_id)]
+
+    if donation_tier == "premium":
+        # 1. convert any existing supporter to premium
+        if has_supporter:
+            donor_seconds_remaining = supporter_to_premium(donor_seconds_remaining)
+            if SUPPORTER_BADGE_ID in user_badge_ids:
+                user_badge_ids.remove(SUPPORTER_BADGE_ID)
+
+        # 2. add the new donation
+        privileges |= Privileges.PREMIUM | Privileges.SUPPORTER
+        donor_seconds_remaining += months_to_seconds(donation_months)
+        if PREMIUM_BADGE_ID not in user_badge_ids:
+            user_badge_ids.append(PREMIUM_BADGE_ID)
+
+    elif donation_tier == "supporter":
+        # 1. convert any existing premium to supporter
+        if has_premium:
+            privileges &= ~Privileges.PREMIUM
+            donor_seconds_remaining = premium_to_supporter(donor_seconds_remaining)
+            if PREMIUM_BADGE_ID in user_badge_ids:
+                user_badge_ids.remove(PREMIUM_BADGE_ID)
+
+        # 2. add the new donation
+        privileges |= Privileges.SUPPORTER
+        donor_seconds_remaining += months_to_seconds(donation_months)
+        if SUPPORTER_BADGE_ID not in user_badge_ids:
+            user_badge_ids.append(SUPPORTER_BADGE_ID)
+
+    donor_expire = min(donor_seconds_remaining + time.time(), I32_MAX)
+    donor_expire = int(donor_expire)
+
+    # remove any badges beyond the limit
+    # (these will always be ones we added)
+    user_badge_ids = user_badge_ids[:BADGE_LIMIT]
+
+    logging.info(
+        "Granting donation perks to user",
+        extra={
+            "user_id": user_id,
+            "username": username,
+            "donation_tier": donation_tier,
+            "donation_months": donation_months,
+            "donation_amount": donation_amount,
+            "donation_currency": donation_currency,
+            "new_privileges": privileges,
+            "new_donor_expire": donor_expire,
+            "new_user_badges": user_badge_ids,  # TODO: nicer format
+            "transaction_id": transaction_id,
+            "request_id": x_request_id,
+        },
+    )
+
+    # make writes to the database
+    if settings.SHOULD_WRITE_TO_USERS_DB:
+        async with clients.database.transaction():
+            await users.partial_update(
+                user_id=user_id,
+                privileges=privileges,
+                donor_expire=donor_expire,
+            )
+
+            await user_badges.delete_by_user_id(user_id)
+            for badge_id in user_badge_ids:
+                await user_badges.insert(user_id, badge_id)
+
+            await notifications.insert(
+                transaction_id=transaction_id,
+                notification=notification,
+            )
+
+    return Response(status_code=200)
