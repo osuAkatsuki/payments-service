@@ -232,7 +232,7 @@ async def process_notification(
                 "reason": "no_user_identification",
                 "request_id": x_request_id,
             },
-        )=
+        )
         schedule_failure_webhook(
             reason="no_user_identification",
             request_id=x_request_id,
