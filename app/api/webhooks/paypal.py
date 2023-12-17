@@ -98,6 +98,20 @@ def schedule_failure_webhook(fields: dict[str, Any]) -> None:
     asyncio.create_task(send_discord_webhook(webhook))
 
 
+def schedule_success_webhook(**data: Any) -> None:
+    webhook = AsyncDiscordWebhook(
+        url=settings.DISCORD_WEBHOOK_URL,
+        embeds=[
+            DiscordEmbed(
+                title="Successfully granted donation perks to user",
+                fields=[{"name": k, "value": str(v)} for k, v in data.items()],
+                color=0x00FF00,
+            ),
+        ],
+    )
+    asyncio.create_task(send_discord_webhook(webhook))
+
+
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(
     request: Request,
@@ -384,33 +398,19 @@ async def process_notification(
             "request_id": x_request_id,
         },
     )
-
-    fields: list[dict[str, Any]] = [
-        {"name": "User ID", "value": f"{user_id}"},
-        {"name": "Username", "value": username},
-        {"name": "Donation Tier", "value": donation_tier},
-        {"name": "Donation Months", "value": f"{donation_months}"},
-        {"name": "Donation Amount", "value": f"{donation_amount:.2f}"},
-        {"name": "Donation Currency", "value": donation_currency},
-        {"name": "New Privileges", "value": f"{privileges}"},
-        {
-            "name": "New Donor Expire",
-            "value": datetime.fromtimestamp(donor_expire).isoformat(),
-        },
-        {"name": "New User Badges", "value": f"{user_badge_ids}"},
-        {"name": "Transaction ID", "value": transaction_id},
-    ]
-    webhook = AsyncDiscordWebhook(
-        url=settings.DISCORD_WEBHOOK_URL,
-        content="** **",
-        embeds=[
-            DiscordEmbed(
-                title="Granting donation perks to user",
-                fields=[f | {"inline": True} for f in fields],
-            ),
-        ],
+    schedule_success_webhook(
+        user_id=user_id,
+        username=username,
+        donation_tier=donation_tier,
+        donation_months=donation_months,
+        donation_amount=round(donation_amount, 2),
+        donation_currency=donation_currency,
+        new_privileges=privileges,
+        new_donor_expire=datetime.fromtimestamp(donor_expire),
+        new_user_badges=user_badge_ids,
+        transaction_id=transaction_id,
+        request_id=x_request_id,
     )
-    await webhook.execute()
 
     # make writes to the database
     if settings.SHOULD_WRITE_TO_USERS_DB:
