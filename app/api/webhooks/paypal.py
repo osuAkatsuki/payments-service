@@ -98,13 +98,13 @@ def schedule_failure_webhook(fields: dict[str, Any]) -> None:
     asyncio.create_task(send_discord_webhook(webhook))
 
 
-def schedule_success_webhook(**data: Any) -> None:
+def schedule_success_webhook(fields: dict[str, Any]) -> None:
     webhook = AsyncDiscordWebhook(
         url=settings.DISCORD_WEBHOOK_URL,
         embeds=[
             DiscordEmbed(
                 title="Successfully granted donation perks to user",
-                fields=[{"name": k, "value": str(v)} for k, v in data.items()],
+                fields=[{"name": k, "value": str(v)} for k, v in fields.items()],
                 color=0x00FF00,
             ),
         ],
@@ -399,17 +399,19 @@ async def process_notification(
         },
     )
     schedule_success_webhook(
-        user_id=user_id,
-        username=username,
-        donation_tier=donation_tier,
-        donation_months=donation_months,
-        donation_amount=round(donation_amount, 2),
-        donation_currency=donation_currency,
-        new_privileges=privileges,
-        new_donor_expire=datetime.fromtimestamp(donor_expire),
-        new_user_badges=user_badge_ids,
-        transaction_id=transaction_id,
-        request_id=x_request_id,
+        fields={
+            "User ID": user_id,
+            "Username": username,
+            "Donation Tier": donation_tier,
+            "Donation Months": donation_months,
+            "Donation Amount": round(donation_amount, 2),
+            "Donation Currency": donation_currency,
+            "New Privileges": privileges,
+            "New Donor Expire": datetime.fromtimestamp(donor_expire),
+            "New User Badges": user_badge_ids,
+            "Transaction ID": transaction_id,
+            "Request ID": x_request_id,
+        },
     )
 
     # make writes to the database
