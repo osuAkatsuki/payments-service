@@ -1,4 +1,5 @@
 databases[aiomysql]
+discord-webhook
 fastapi
 httpx
 pydantic
