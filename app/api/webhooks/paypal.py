@@ -292,18 +292,18 @@ async def process_notification(
     )
 
     fields: list[dict[str, Any]] = [
-        {"name": "User ID", "value": user_id},
+        {"name": "User ID", "value": f"{user_id}"},
         {"name": "Username", "value": username},
         {"name": "Donation Tier", "value": donation_tier},
-        {"name": "Donation Months", "value": donation_months},
-        {"name": "Donation Amount", "value": donation_amount},
+        {"name": "Donation Months", "value": f"{donation_months}"},
+        {"name": "Donation Amount", "value": f"{donation_amount:.2f}"},
         {"name": "Donation Currency", "value": donation_currency},
-        {"name": "New Privileges", "value": privileges},
+        {"name": "New Privileges", "value": f"{privileges}"},
         {
             "name": "New Donor Expire",
             "value": datetime.fromtimestamp(donor_expire).isoformat(),
         },
-        {"name": "New User Badges", "value": user_badge_ids},
+        {"name": "New User Badges", "value": f"{user_badge_ids}"},
         {"name": "Transaction ID", "value": transaction_id},
     ]
     webhook = AsyncDiscordWebhook(
