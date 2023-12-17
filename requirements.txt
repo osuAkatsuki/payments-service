@@ -6,4 +6,5 @@ pydantic
 python-dotenv
 python-json-logger
 pyyaml
+tenacity
 uvicorn
