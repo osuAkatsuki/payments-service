@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 import urllib.parse
@@ -11,9 +12,13 @@ from fastapi import APIRouter
 from fastapi import Header
 from fastapi import Request
 from fastapi import Response
+from tenacity import retry
+from tenacity import stop_after_attempt
+from tenacity import wait_exponential_jitter
 
 from app import clients
 from app import settings
+from app.reliability import retry_if_exception_network_related
 from app.repositories import notifications
 from app.repositories import user_badges
 from app.repositories import users
@@ -70,6 +75,29 @@ def supporter_to_premium(donor_time_remaining: float) -> float:
     return donor_time_remaining * exchange_rate
 
 
+@retry(
+    stop=stop_after_attempt(7),
+    wait=wait_exponential_jitter(initial=1, max=60, exp_base=2, jitter=1),
+    retry=retry_if_exception_network_related(),
+)
+async def send_discord_webhook(webhook: AsyncDiscordWebhook) -> None:
+    await webhook.execute()
+
+
+def schedule_failure_webhook(**data: Any) -> None:
+    webhook = AsyncDiscordWebhook(
+        url=settings.DISCORD_WEBHOOK_URL,
+        embeds=[
+            DiscordEmbed(
+                title="Failed to grant donation perks to user",
+                fields=[{"name": k, "value": str(v)} for k, v in data.items()],
+                color=0xFF0000,
+            ),
+        ],
+    )
+    asyncio.create_task(send_discord_webhook(webhook))
+
+
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(
     request: Request,
@@ -97,6 +125,7 @@ async def process_notification(
         logging.warning(
             "PayPal IPN invalid",
             extra={
+                "reason": "ipn_verification_failed",
                 "response_text": response.text,
                 "will_grant_donor": will_grant_donor,
                 "request_id": x_request_id,
@@ -106,6 +135,11 @@ async def process_notification(
         if settings.SHOULD_REQUIRE_IPN_VERIFICATION:
             # Do not process the request any further.
             # Return a 2xx code to prevent PayPal from retrying.
+            schedule_failure_webhook(
+                reason="ipn_verification_failed",
+                response_text=response.text,
+                request_id=x_request_id,
+            )
             return Response(status_code=200)
         else:
             pass
@@ -120,6 +154,11 @@ async def process_notification(
                 "payment_status": notification["payment_status"],
                 "request_id": x_request_id,
             },
+        )
+        schedule_failure_webhook(
+            reason="incomplete_payment",
+            payment_status=notification["payment_status"],
+            request_id=x_request_id,
         )
         return Response(status_code=400)
 
@@ -136,6 +175,11 @@ async def process_notification(
                 "request_id": x_request_id,
             },
         )
+        schedule_failure_webhook(
+            reason="transaction_already_processed",
+            transaction_id=transaction_id,
+            request_id=x_request_id,
+        )
         return Response(status_code=200)
 
     if notification["business"] != settings.PAYPAL_BUSINESS_EMAIL:
@@ -147,6 +191,12 @@ async def process_notification(
                 "expected_business": settings.PAYPAL_BUSINESS_EMAIL,
                 "request_id": x_request_id,
             },
+        )
+        schedule_failure_webhook(
+            reason="wrong_paypal_business_email",
+            business=notification["business"],
+            expected_business=settings.PAYPAL_BUSINESS_EMAIL,
+            request_id=x_request_id,
         )
         return Response(status_code=400)
 
@@ -160,6 +210,12 @@ async def process_notification(
                 "accepted_currencies": ACCEPTED_CURRENCIES,
                 "request_id": x_request_id,
             },
+        )
+        schedule_failure_webhook(
+            reason="non_accpeted_currency",
+            currency=donation_currency,
+            accepted_currencies=ACCEPTED_CURRENCIES,
+            request_id=x_request_id,
         )
         return Response(status_code=400)
 
@@ -177,6 +233,10 @@ async def process_notification(
                 "request_id": x_request_id,
             },
         )
+        schedule_failure_webhook(
+            reason="no_user_identification",
+            request_id=x_request_id,
+        )
         return Response(status_code=400)
 
     if user is None:
@@ -187,6 +247,11 @@ async def process_notification(
                 "custom_fields": custom_fields,
                 "request_id": x_request_id,
             },
+        )
+        schedule_failure_webhook(
+            reason="user_not_found",
+            custom_fields=custom_fields,
+            request_id=x_request_id,
         )
         return Response(status_code=400)
 
@@ -221,6 +286,11 @@ async def process_notification(
                 "request_id": x_request_id,
             },
         )
+        schedule_failure_webhook(
+            reason="invalid_donation_tier",
+            donation_tier=donation_tier,
+            request_id=x_request_id,
+        )
         return Response(status_code=400)
 
     donation_amount = float(notification["mc_gross"])
@@ -233,6 +303,12 @@ async def process_notification(
                 "calculated_price": calculated_price,
                 "request_id": x_request_id,
             },
+        )
+        schedule_failure_webhook(
+            reason="invalid_donation_amount",
+            donation_amount=donation_amount,
+            calculated_price=calculated_price,
+            request_id=x_request_id,
         )
         return Response(status_code=400)
 
