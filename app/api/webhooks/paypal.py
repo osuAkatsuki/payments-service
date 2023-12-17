@@ -70,18 +70,6 @@ def supporter_to_premium(donor_time_remaining: float) -> float:
     return donor_time_remaining * exchange_rate
 
 
-def readable_privileges(privileges: int) -> str:
-    if privileges == 0:
-        return "None"
-
-    parts: list[str] = []
-    if privileges & Privileges.SUPPORTER != 0:
-        parts.append("Supporter")
-    if privileges & Privileges.PREMIUM != 0:
-        parts.append("Premium")
-    return ", ".join(parts)
-
-
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(
     request: Request,
@@ -310,7 +298,7 @@ async def process_notification(
         {"name": "Donation Months", "value": donation_months},
         {"name": "Donation Amount", "value": donation_amount},
         {"name": "Donation Currency", "value": donation_currency},
-        {"name": "New Privileges", "value": readable_privileges(privileges)},
+        {"name": "New Privileges", "value": privileges},
         {
             "name": "New Donor Expire",
             "value": datetime.fromtimestamp(donor_expire).isoformat(),
