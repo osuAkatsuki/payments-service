@@ -84,13 +84,13 @@ async def send_discord_webhook(webhook: AsyncDiscordWebhook) -> None:
     await webhook.execute()
 
 
-def schedule_failure_webhook(**data: Any) -> None:
+def schedule_failure_webhook(fields: dict[str, Any]) -> None:
     webhook = AsyncDiscordWebhook(
         url=settings.DISCORD_WEBHOOK_URL,
         embeds=[
             DiscordEmbed(
                 title="Failed to grant donation perks to user",
-                fields=[{"name": k, "value": str(v)} for k, v in data.items()],
+                fields=[{"name": k, "value": str(v)} for k, v in fields.items()],
                 color=0xFF0000,
             ),
         ],
@@ -136,9 +136,11 @@ async def process_notification(
             # Do not process the request any further.
             # Return a 2xx code to prevent PayPal from retrying.
             schedule_failure_webhook(
-                reason="ipn_verification_failed",
-                response_text=response.text,
-                request_id=x_request_id,
+                fields={
+                    "Reason": "ipn_verification_failed",
+                    "Response Text": response.text,
+                    "Request ID": x_request_id,
+                },
             )
             return Response(status_code=200)
         else:
@@ -156,9 +158,11 @@ async def process_notification(
             },
         )
         schedule_failure_webhook(
-            reason="incomplete_payment",
-            payment_status=notification["payment_status"],
-            request_id=x_request_id,
+            fields={
+                "Reason": "incomplete_payment",
+                "Payment Status": notification["payment_status"],
+                "Request ID": x_request_id,
+            },
         )
         return Response(status_code=200)
 
@@ -176,9 +180,11 @@ async def process_notification(
             },
         )
         schedule_failure_webhook(
-            reason="transaction_already_processed",
-            transaction_id=transaction_id,
-            request_id=x_request_id,
+            fields={
+                "Reason": "transaction_already_processed",
+                "Transaction ID": transaction_id,
+                "Request ID": x_request_id,
+            },
         )
         return Response(status_code=200)
 
@@ -193,10 +199,12 @@ async def process_notification(
             },
         )
         schedule_failure_webhook(
-            reason="wrong_paypal_business_email",
-            business=notification["business"],
-            expected_business=settings.PAYPAL_BUSINESS_EMAIL,
-            request_id=x_request_id,
+            fields={
+                "Reason": "wrong_paypal_business_email",
+                "Business": notification["business"],
+                "Expected Business": settings.PAYPAL_BUSINESS_EMAIL,
+                "Request ID": x_request_id,
+            },
         )
         return Response(status_code=200)
 
@@ -212,10 +220,12 @@ async def process_notification(
             },
         )
         schedule_failure_webhook(
-            reason="non_accpeted_currency",
-            currency=donation_currency,
-            accepted_currencies=ACCEPTED_CURRENCIES,
-            request_id=x_request_id,
+            fields={
+                "Reason": "non_accpeted_currency",
+                "Currency": donation_currency,
+                "Accepted Currencies": ACCEPTED_CURRENCIES,
+                "Request ID": x_request_id,
+            },
         )
         return Response(status_code=200)
 
@@ -234,8 +244,10 @@ async def process_notification(
             },
         )
         schedule_failure_webhook(
-            reason="no_user_identification",
-            request_id=x_request_id,
+            fields={
+                "Reason": "no_user_identification",
+                "Request ID": x_request_id,
+            },
         )
         return Response(status_code=200)
 
@@ -249,9 +261,11 @@ async def process_notification(
             },
         )
         schedule_failure_webhook(
-            reason="user_not_found",
-            custom_fields=custom_fields,
-            request_id=x_request_id,
+            fields={
+                "Reason": "user_not_found",
+                "Custom Fields": custom_fields,
+                "Request ID": x_request_id,
+            },
         )
         return Response(status_code=200)
 
@@ -287,9 +301,11 @@ async def process_notification(
             },
         )
         schedule_failure_webhook(
-            reason="invalid_donation_tier",
-            donation_tier=donation_tier,
-            request_id=x_request_id,
+            fields={
+                "Reason": "invalid_donation_tier",
+                "Donation Tier": donation_tier,
+                "Request ID": x_request_id,
+            },
         )
         return Response(status_code=200)
 
@@ -305,10 +321,12 @@ async def process_notification(
             },
         )
         schedule_failure_webhook(
-            reason="invalid_donation_amount",
-            donation_amount=donation_amount,
-            calculated_price=calculated_price,
-            request_id=x_request_id,
+            fields={
+                "Reason": "invalid_donation_amount",
+                "Donation Amount": donation_amount,
+                "Calculated Price": calculated_price,
+                "Request ID": x_request_id,
+            },
         )
         return Response(status_code=200)
 
