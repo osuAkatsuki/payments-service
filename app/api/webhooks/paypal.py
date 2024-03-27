@@ -161,6 +161,7 @@ async def process_notification(
             pass
 
     notification = dict(request_params)
+    transaction_id = notification["txn_id"]
 
     if notification["payment_status"] != "Completed":
         logging.warning(
@@ -168,6 +169,7 @@ async def process_notification(
             extra={
                 "reason": "incomplete_payment",
                 "payment_status": notification["payment_status"],
+                "transaction_id": transaction_id,
                 "request_id": x_request_id,
             },
         )
@@ -175,12 +177,12 @@ async def process_notification(
             fields={
                 "Reason": "incomplete_payment",
                 "Payment Status": notification["payment_status"],
+                "Transaction ID": transaction_id,
                 "Request ID": x_request_id,
             },
         )
         return Response(status_code=200)
 
-    transaction_id = notification["txn_id"]
     if (
         settings.SHOULD_ENFORCE_UNIQUE_PAYMENTS
         and await notifications.already_processed(transaction_id)
