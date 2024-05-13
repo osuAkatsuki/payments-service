@@ -9,14 +9,11 @@ class User(TypedDict):
     username: str
     username_safe: str
     password_md5: str
-    salt: str
     email: str
     register_datetime: int
-    achievements_version: int
     latest_activity: int
     silence_end: int
     silence_reason: str
-    password_version: int
     privileges: int
     donor_expire: int
     frozen: int
@@ -30,8 +27,6 @@ class User(TypedDict):
     clan_id: int
     clan_privileges: int
     userpage_allowed: int
-    converted: int
-    freeze_reason: str
 
 
 async def fetch_by_user_id(user_id: int) -> User | None:
