@@ -25,7 +25,6 @@ class User(TypedDict):
     previous_overwrite: int
     whitelist: int
     clan_id: int
-    clan_privileges: int
     userpage_allowed: int
 
 
