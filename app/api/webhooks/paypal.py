@@ -49,8 +49,11 @@ I32_MAX = (1 << 31) - 1
 
 
 class Privileges:
-    SUPPORTER = 4
+    SUPPORTER = 4  # Deprecated legacy role
     PREMIUM = 8388608
+
+
+PREMIUM_MONTHLY_PRICE = 5.0
 
 
 def months_to_seconds(months: int) -> float:
@@ -62,7 +65,7 @@ def calculate_supporter_price(months: int) -> float:
 
 
 def calculate_premium_price(months: int) -> float:
-    return round((months * 68 * 0.15) ** 0.93, 2)
+    return round(months * PREMIUM_MONTHLY_PRICE, 2)
 
 
 def premium_to_supporter(donor_time_remaining: float) -> float:
@@ -288,8 +291,8 @@ async def process_notification(
     user_id = user["id"]
     username = user["username"]
 
+    # TODO: remove this after supporter perk migration is complete
     has_supporter = user["privileges"] & Privileges.SUPPORTER != 0
-    has_premium = user["privileges"] & Privileges.PREMIUM != 0
 
     # TODO: potentially clean this up
     donation_tier = (
@@ -303,10 +306,26 @@ async def process_notification(
         notification["option_selection1"].removesuffix("s").removesuffix(" month"),
     )
 
-    if donation_tier == "supporter":
-        calculated_price = calculate_supporter_price(donation_months)
-    elif donation_tier == "premium":
+    if donation_tier == "premium":
         calculated_price = calculate_premium_price(donation_months)
+    elif donation_tier == "supporter":
+        logging.warning(
+            "A user attempted to purchase supporter after it's been deprecated",
+            extra={
+                "request_id": x_request_id,
+                "user_id": user_id,
+                "username": username,
+            },
+        )
+        schedule_failure_webhook(
+            fields={
+                "Reason": "supporter_deprecated",
+                "User ID": user_id,
+                "Username": username,
+                "Request ID": x_request_id,
+            },
+        )
+        return Response(status_code=200)
     else:
         logging.error(
             "Failed to process IPN notification",
@@ -350,32 +369,17 @@ async def process_notification(
     donor_seconds_remaining = max(user["donor_expire"], time.time()) - time.time()
     user_badge_ids = [b["badge"] for b in await user_badges.fetch_all(user_id)]
 
-    if donation_tier == "premium":
-        # 1. convert any existing supporter to premium
-        if has_supporter:
-            donor_seconds_remaining = supporter_to_premium(donor_seconds_remaining)
-            if SUPPORTER_BADGE_ID in user_badge_ids:
-                user_badge_ids.remove(SUPPORTER_BADGE_ID)
+    # 1. convert any existing supporter to premium (TODO: deprecate after perk migration)
+    if has_supporter:
+        donor_seconds_remaining = supporter_to_premium(donor_seconds_remaining)
+        if SUPPORTER_BADGE_ID in user_badge_ids:
+            user_badge_ids.remove(SUPPORTER_BADGE_ID)
 
-        # 2. add the new donation
-        privileges |= Privileges.PREMIUM | Privileges.SUPPORTER
-        donor_seconds_remaining += months_to_seconds(donation_months)
-        if PREMIUM_BADGE_ID not in user_badge_ids:
-            user_badge_ids.append(PREMIUM_BADGE_ID)
-
-    elif donation_tier == "supporter":
-        # 1. convert any existing premium to supporter
-        if has_premium:
-            privileges &= ~Privileges.PREMIUM
-            donor_seconds_remaining = premium_to_supporter(donor_seconds_remaining)
-            if PREMIUM_BADGE_ID in user_badge_ids:
-                user_badge_ids.remove(PREMIUM_BADGE_ID)
-
-        # 2. add the new donation
-        privileges |= Privileges.SUPPORTER
-        donor_seconds_remaining += months_to_seconds(donation_months)
-        if SUPPORTER_BADGE_ID not in user_badge_ids:
-            user_badge_ids.append(SUPPORTER_BADGE_ID)
+    # 2. add the new donation
+    privileges |= Privileges.PREMIUM | Privileges.SUPPORTER
+    donor_seconds_remaining += months_to_seconds(donation_months)
+    if PREMIUM_BADGE_ID not in user_badge_ids:
+        user_badge_ids.append(PREMIUM_BADGE_ID)
 
     donor_expire = min(donor_seconds_remaining + time.time(), I32_MAX)
     donor_expire = int(donor_expire)
