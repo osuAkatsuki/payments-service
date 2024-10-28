@@ -35,11 +35,7 @@ PAYPAL_VERIFY_URL = (
     else PAYPAL_VERIFY_URL_TEST
 )
 
-ACCEPTED_CURRENCIES = {"EUR"}
-if settings.APP_ENV != "production":
-    # the sandbox env only supports USD
-    ACCEPTED_CURRENCIES.add("USD")
-
+ACCEPTED_CURRENCIES = {"USD"}
 
 BADGE_LIMIT = 6
 SUPPORTER_BADGE_ID = 36
