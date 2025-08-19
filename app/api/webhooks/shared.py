@@ -292,7 +292,7 @@ async def process_donation_perks(
 
 
 async def check_duplicate_transaction(
-    transaction_id: str, x_request_id: str, provider: str = ""
+    transaction_id: str, x_request_id: str, provider: str = "",
 ) -> tuple[bool, str]:
     """Check if transaction has already been processed."""
     if (

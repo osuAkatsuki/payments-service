@@ -54,7 +54,7 @@ async def process_stripe_webhook(
     try:
         # Verify the webhook signature
         event = stripe.Webhook.construct_event(
-            request_data, signature, settings.STRIPE_WEBHOOK_SECRET
+            request_data, signature, settings.STRIPE_WEBHOOK_SECRET,
         )
     except ValueError as e:
         logging.error(
@@ -137,7 +137,7 @@ async def handle_checkout_session_completed(session: dict, x_request_id: str) ->
 
     # Check for duplicate processing
     is_duplicate, error_reason = await shared.check_duplicate_transaction(
-        transaction_id, x_request_id, "Stripe"
+        transaction_id, x_request_id, "Stripe",
     )
     if is_duplicate:
         shared.schedule_failure_webhook(
@@ -171,14 +171,14 @@ async def handle_checkout_session_completed(session: dict, x_request_id: str) ->
 
 
 async def handle_payment_intent_succeeded(
-    payment_intent: dict, x_request_id: str
+    payment_intent: dict, x_request_id: str,
 ) -> None:
     """Handle successful payment intents from Stripe."""
     transaction_id = payment_intent["id"]
 
     # Check for duplicate processing
     is_duplicate, error_reason = await shared.check_duplicate_transaction(
-        transaction_id, x_request_id, "Stripe"
+        transaction_id, x_request_id, "Stripe",
     )
     if is_duplicate:
         shared.schedule_failure_webhook(
@@ -212,7 +212,7 @@ async def handle_payment_intent_succeeded(
 
 
 async def process_donation_payment(
-    payment_data: dict, user: users.User, transaction_id: str, x_request_id: str
+    payment_data: dict, user: users.User, transaction_id: str, x_request_id: str,
 ) -> None:
     """Process a donation payment and grant perks to the user."""
     # Extract payment information
@@ -247,7 +247,7 @@ async def process_donation_payment(
 
     # Validate donation tier
     is_valid_tier, error_reason = await shared.validate_donation_tier(
-        donation_tier, user["id"], user["username"], x_request_id
+        donation_tier, user["id"], user["username"], x_request_id,
     )
     if not is_valid_tier:
         shared.schedule_failure_webhook(
@@ -268,7 +268,7 @@ async def process_donation_payment(
         calculated_price = 0  # This should not happen due to validation above
 
     is_valid_amount, error_reason = await shared.validate_donation_amount(
-        donation_amount, calculated_price, x_request_id
+        donation_amount, calculated_price, x_request_id,
     )
     if not is_valid_amount:
         shared.schedule_failure_webhook(

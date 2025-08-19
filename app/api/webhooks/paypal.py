@@ -101,7 +101,7 @@ async def process_notification(
 
     # Check for duplicate processing
     is_duplicate, error_reason = await shared.check_duplicate_transaction(
-        transaction_id, x_request_id, "PayPal"
+        transaction_id, x_request_id, "PayPal",
     )
     if is_duplicate:
         shared.schedule_failure_webhook(
@@ -185,7 +185,7 @@ async def process_notification(
 
     # Validate donation tier
     is_valid_tier, error_reason = await shared.validate_donation_tier(
-        donation_tier, user["id"], user["username"], x_request_id
+        donation_tier, user["id"], user["username"], x_request_id,
     )
     if not is_valid_tier:
         shared.schedule_failure_webhook(
@@ -207,7 +207,7 @@ async def process_notification(
 
     donation_amount = float(notification["mc_gross"])
     is_valid_amount, error_reason = await shared.validate_donation_amount(
-        donation_amount, calculated_price, x_request_id
+        donation_amount, calculated_price, x_request_id,
     )
     if not is_valid_amount:
         shared.schedule_failure_webhook(
