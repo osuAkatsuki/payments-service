@@ -302,6 +302,24 @@ async def process_notification(
         notification["option_selection1"].removesuffix("s").removesuffix(" month"),
     )
 
+    if donation_months <= 0:
+        logging.error(
+            "Failed to process IPN notification",
+            extra={
+                "reason": "invalid_donation_months",
+                "donation_months": donation_months,
+                "request_id": x_request_id,
+            },
+        )
+        schedule_failure_webhook(
+            fields={
+                "Reason": "invalid_donation_months",
+                "Donation Months": donation_months,
+                "Request ID": x_request_id,
+            },
+        )
+        return Response(status_code=200)
+
     if donation_tier == "premium":
         calculated_price = calculate_premium_price(donation_months)
     elif donation_tier == "supporter":
