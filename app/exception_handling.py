@@ -8,6 +8,11 @@ from types import TracebackType
 from typing import Any
 from typing import Optional
 
+import fastapi.exception_handlers
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
 ExceptionHook = Callable[
     [type[BaseException], BaseException, Optional[TracebackType]],
     Any,
@@ -41,6 +46,19 @@ def internal_thread_exception_handler(
         exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
         extra={"thread_vars": vars(args.thread)},
     )
+
+
+async def request_validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    logging.warning(
+        "Request validation failed",
+        extra={"body": exc.body, "path": request.url.path},
+        exc_info=exc,
+    )
+    original_handler = fastapi.exception_handlers.request_validation_exception_handler
+    return await original_handler(request, exc)
 
 
 def hook_exception_handlers() -> None:
