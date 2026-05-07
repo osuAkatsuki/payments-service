@@ -51,6 +51,7 @@ jobs:
           username: root
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            set -e
             cd /opt/akatsuki
             docker compose pull payments-service
             docker compose up -d payments-service
