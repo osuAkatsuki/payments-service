@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
 import app.clients
 import app.exception_handling
@@ -23,6 +24,11 @@ async def lifespan(asgi_app: FastAPI) -> AsyncIterator[None]:
 
 
 asgi_app = FastAPI(lifespan=lifespan)
+asgi_app.add_exception_handler(
+    RequestValidationError,
+    # TODO[better-typing]: https://github.com/encode/starlette/pull/2403
+    app.exception_handling.request_validation_exception_handler,  # type: ignore[arg-type]
+)
 
 
 @asgi_app.get("/_health")
