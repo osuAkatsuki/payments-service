@@ -114,7 +114,7 @@ def schedule_success_webhook(fields: dict[str, Any]) -> None:
 @router.post("/webhooks/paypal_ipn")
 async def process_notification(
     request: Request,
-    x_request_id: str = Header(default_factory=uuid.uuid4),
+    x_request_id: str = Header(default_factory=lambda: str(uuid.uuid4())),
 ):
     request_data = await request.body()
     logging.info(  # TODO: change to debug once stabilized
