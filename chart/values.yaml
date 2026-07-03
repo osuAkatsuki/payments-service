@@ -9,7 +9,7 @@ apps:
       targetCPUUtilizationPercentage: 80
     container:
       image:
-        repository: osuakatsuki/payments-service
+        repository: ghcr.io/osuakatsuki/payments-service
         tag: latest
       port: 80
       readinessProbe:
