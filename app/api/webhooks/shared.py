@@ -19,6 +19,7 @@ from app.repositories import users
 
 
 # Shared constants
+BADGE_LIMIT = 6
 SUPPORTER_BADGE_ID = 36
 PREMIUM_BADGE_ID = 59
 
@@ -201,6 +202,8 @@ async def process_donation_perks(
     ]
     if PREMIUM_BADGE_ID not in user_badge_ids:
         user_badge_ids.append(PREMIUM_BADGE_ID)
+
+    user_badge_ids = user_badge_ids[:BADGE_LIMIT]
 
     logging.info(
         (
