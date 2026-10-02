@@ -37,6 +37,7 @@ PAYPAL_VERIFY_URL = (
 
 ACCEPTED_CURRENCIES = {"USD"}
 
+BADGE_LIMIT = 6
 SUPPORTER_BADGE_ID = 36
 PREMIUM_BADGE_ID = 59
 
@@ -359,6 +360,8 @@ async def process_notification(
     ]
     if PREMIUM_BADGE_ID not in user_badge_ids:
         user_badge_ids.append(PREMIUM_BADGE_ID)
+
+    user_badge_ids = user_badge_ids[:BADGE_LIMIT]
 
     logging.info(
         "Granting donation perks to user",
