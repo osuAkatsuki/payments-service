@@ -23,7 +23,6 @@ from app.repositories import notifications
 from app.repositories import user_badges
 from app.repositories import users
 
-
 router = APIRouter()
 
 PAYPAL_VERIFY_URL_PROD = "https://ipnpb.paypal.com/cgi-bin/webscr"
