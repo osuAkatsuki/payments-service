@@ -28,12 +28,14 @@ class User(TypedDict):
     userpage_allowed: int
 
 
-async def fetch_by_user_id(user_id: int) -> User | None:
+async def fetch_by_user_id(user_id: int, *, for_update: bool = False) -> User | None:
+    lock_clause = "FOR UPDATE" if for_update else ""
     user = await clients.database.fetch_one(
         query=f"""\
             SELECT *
             FROM users
             WHERE id = :user_id
+            {lock_clause}
         """,
         values={"user_id": user_id},
     )

@@ -9,12 +9,14 @@ class UserBadge(TypedDict):
     badge: int
 
 
-async def fetch_all(user_id: int) -> list[UserBadge]:
+async def fetch_all(user_id: int, *, for_update: bool = False) -> list[UserBadge]:
+    lock_clause = "FOR UPDATE" if for_update else ""
     recs = await clients.database.fetch_all(
-        query="""\
+        query=f"""\
             SELECT user, badge
               FROM user_badges
              WHERE user = :user_id
+             {lock_clause}
         """,
         values={"user_id": user_id},
     )

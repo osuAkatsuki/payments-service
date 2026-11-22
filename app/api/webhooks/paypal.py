@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 import urllib.parse
 import uuid
@@ -103,98 +104,48 @@ async def process_notification(
     x_request_id: str = Header(default_factory=lambda: str(uuid.uuid4())),
 ):
     request_data = await request.body()
-    logging.info(  # TODO: change to debug once stabilized
-        "Received PayPal IPN notification",
-        extra={
-            "request_data": request_data,
-            "request_id": x_request_id,
-        },
-    )
+    logging.info("Received PayPal IPN notification", extra={"request_id": x_request_id})
 
-    request_params = urllib.parse.parse_qsl(request_data.decode())
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
         headers={"content-type": "application/x-www-form-urlencoded"},
-        params=[("cmd", "_notify-validate")] + request_params,  # type: ignore
+        content=b"cmd=_notify-validate&" + request_data,
     )
     response.raise_for_status()
+    if response.text.strip() != "VERIFIED":
+        logging.warning("PayPal IPN verification failed", extra={"request_id": x_request_id})
+        return Response(status_code=200)
 
-    if response.text != "VERIFIED":
-        will_grant_donor = not settings.SHOULD_REQUIRE_IPN_VERIFICATION
-        logging.warning(
-            "PayPal IPN invalid",
-            extra={
-                "reason": "ipn_verification_failed",
-                "response_text": response.text,
-                "will_grant_donor": will_grant_donor,
-                "request_id": x_request_id,
-            },
-        )
+    notification = dict(
+        urllib.parse.parse_qsl(request_data.decode("ascii", errors="replace"), keep_blank_values=True),
+    )
+    transaction_id = notification.get("txn_id", "")
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,255}", transaction_id):
+        return Response(status_code=200)
 
-        if settings.SHOULD_REQUIRE_IPN_VERIFICATION:
-            # Do not process the request any further.
-            # Return a 2xx code to prevent PayPal from retrying.
+    payment_status = notification.get("payment_status")
+    if payment_status in {"Refunded", "Reversed"}:
+        if notification.get("business") == settings.PAYPAL_BUSINESS_EMAIL:
             schedule_failure_webhook(
                 fields={
-                    "Reason": "ipn_verification_failed",
-                    "Response Text": response.text,
+                    "Reason": "paypal_payment_reversal_requires_review",
+                    "Payment Status": payment_status,
+                    "Transaction ID": transaction_id,
+                    "Original Transaction ID": notification.get("parent_txn_id", ""),
                     "Request ID": x_request_id,
                 },
             )
-            return Response(status_code=200)
-        else:
-            pass
-
-    notification = dict(request_params)
-    transaction_id = notification["txn_id"]
-
-    if notification["payment_status"] != "Completed":
-        logging.warning(
-            "Failed to process IPN notification",
-            extra={
-                "reason": "incomplete_payment",
-                "payment_status": notification["payment_status"],
-                "transaction_id": transaction_id,
-                "request_id": x_request_id,
-            },
-        )
-        schedule_failure_webhook(
-            fields={
-                "Reason": "incomplete_payment",
-                "Payment Status": notification["payment_status"],
-                "Transaction ID": transaction_id,
-                "Request ID": x_request_id,
-            },
-        )
         return Response(status_code=200)
 
-    if (
-        settings.SHOULD_ENFORCE_UNIQUE_PAYMENTS
-        and await notifications.already_processed(transaction_id)
-    ):
-        logging.warning(
-            "Failed to process IPN notification",
-            extra={
-                "reason": "transaction_already_processed",
-                "transaction_id": transaction_id,
-                "request_id": x_request_id,
-            },
-        )
-        schedule_failure_webhook(
-            fields={
-                "Reason": "transaction_already_processed",
-                "Transaction ID": transaction_id,
-                "Request ID": x_request_id,
-            },
-        )
+    if payment_status != "Completed":
         return Response(status_code=200)
 
-    if notification["business"] != settings.PAYPAL_BUSINESS_EMAIL:
+    if notification.get("business") != settings.PAYPAL_BUSINESS_EMAIL:
         logging.warning(
             "Failed to process IPN notification",
             extra={
                 "reason": "wrong_paypal_business_email",
-                "business": notification["business"],
+                "business": notification.get("business"),
                 "expected_business": settings.PAYPAL_BUSINESS_EMAIL,
                 "request_id": x_request_id,
             },
@@ -202,7 +153,7 @@ async def process_notification(
         schedule_failure_webhook(
             fields={
                 "Reason": "wrong_paypal_business_email",
-                "Business": notification["business"],
+                "Business": notification.get("business"),
                 "Expected Business": settings.PAYPAL_BUSINESS_EMAIL,
                 "Request ID": x_request_id,
             },
@@ -323,6 +274,9 @@ async def process_notification(
         )
         return Response(status_code=200)
 
+    if donation_months <= 0:
+        return Response(status_code=200)
+
     donation_amount = float(notification["mc_gross"])
     if donation_amount != calculated_price:
         logging.error(
@@ -344,24 +298,58 @@ async def process_notification(
         )
         return Response(status_code=200)
 
-    privileges = user["privileges"]
-    now = int(time.time())
-    subscription_bits = Privileges.PREMIUM | Privileges.SUPPORTER
-    donor_expire = now
-    if privileges & subscription_bits == subscription_bits:
-        donor_expire = max(user["donor_expire"], now)
-    donor_expire = min(donor_expire + int(months_to_seconds(donation_months)), I32_MAX)
-    privileges |= subscription_bits
+    if not settings.SHOULD_WRITE_TO_USERS_DB:
+        return Response(status_code=200)
 
-    user_badge_ids = [
-        b["badge"]
-        for b in await user_badges.fetch_all(user_id)
-        if b["badge"] != SUPPORTER_BADGE_ID
-    ]
-    if PREMIUM_BADGE_ID not in user_badge_ids:
-        user_badge_ids.append(PREMIUM_BADGE_ID)
+    async with clients.database.transaction():
+        if await notifications.already_processed(transaction_id):
+            return Response(status_code=200)
+        if not await notifications.claim(transaction_id):
+            return Response(status_code=200)
 
-    user_badge_ids = user_badge_ids[:BADGE_LIMIT]
+        # Distinct payments to the same account must both extend its current expiry.
+        user = await users.fetch_by_user_id(user_id, for_update=True)
+        if user is None:
+            # Roll back the receipt so a retry can succeed if the user reappears.
+            raise RuntimeError("Donation recipient no longer exists.")
+
+        privileges = user["privileges"]
+        now = int(time.time())
+        subscription_bits = Privileges.PREMIUM | Privileges.SUPPORTER
+        donor_expire = now
+        if privileges & subscription_bits == subscription_bits:
+            donor_expire = max(user["donor_expire"], now)
+        donor_expire = min(donor_expire + int(months_to_seconds(donation_months)), I32_MAX)
+        privileges |= subscription_bits
+
+        user_badge_ids = [
+            b["badge"]
+            for b in await user_badges.fetch_all(user_id, for_update=True)
+            if b["badge"] != SUPPORTER_BADGE_ID
+        ]
+        if PREMIUM_BADGE_ID not in user_badge_ids:
+            user_badge_ids.append(PREMIUM_BADGE_ID)
+
+        user_badge_ids = user_badge_ids[:BADGE_LIMIT]
+
+        await notifications.insert(
+            transaction_id=transaction_id,
+            notification={
+                "user_id": user_id,
+                "payment_status": payment_status,
+                "currency": donation_currency,
+                "gross": donation_amount,
+                "months": donation_months,
+            },
+        )
+        await users.partial_update(
+            user_id=user_id,
+            privileges=privileges,
+            donor_expire=donor_expire,
+        )
+        await user_badges.delete_by_user_id(user_id)
+        for badge_id in user_badge_ids:
+            await user_badges.insert(user_id, badge_id)
 
     logging.info(
         "Granting donation perks to user",
@@ -394,23 +382,5 @@ async def process_notification(
             "Request ID": x_request_id,
         },
     )
-
-    # make writes to the database
-    if settings.SHOULD_WRITE_TO_USERS_DB:
-        async with clients.database.transaction():
-            await users.partial_update(
-                user_id=user_id,
-                privileges=privileges,
-                donor_expire=donor_expire,
-            )
-
-            await user_badges.delete_by_user_id(user_id)
-            for badge_id in user_badge_ids:
-                await user_badges.insert(user_id, badge_id)
-
-            await notifications.insert(
-                transaction_id=transaction_id,
-                notification=notification,
-            )
 
     return Response(status_code=200)
