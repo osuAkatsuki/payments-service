@@ -23,7 +23,7 @@ async def lifespan(asgi_app: FastAPI) -> AsyncIterator[None]:
         await app.clients.database.disconnect()
 
 
-asgi_app = FastAPI(lifespan=lifespan)
+asgi_app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 asgi_app.add_exception_handler(
     RequestValidationError,
     # TODO[better-typing]: https://github.com/encode/starlette/pull/2403
