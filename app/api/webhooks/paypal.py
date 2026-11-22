@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+import httpx
 from discord_webhook import AsyncDiscordWebhook
 from discord_webhook.webhook import DiscordEmbed
 from fastapi import APIRouter
@@ -103,27 +104,49 @@ async def process_notification(
     x_request_id: str = Header(default_factory=lambda: str(uuid.uuid4())),
 ):
     request_data = await request.body()
-    response = await clients.http.post(
-        url=PAYPAL_VERIFY_URL,
-        headers={"content-type": "application/x-www-form-urlencoded"},
-        content=b"cmd=_notify-validate&" + request_data,
-    )
-    response.raise_for_status()
-
-    verification_result = response.text.strip()
-    if verification_result == "INVALID":
-        logging.warning(
-            "PayPal IPN invalid",
-            extra={"request_id": x_request_id},
+    verification_required = settings.SHOULD_REQUIRE_IPN_VERIFICATION
+    try:
+        response = await clients.http.post(
+            url=PAYPAL_VERIFY_URL,
+            headers={"content-type": "application/x-www-form-urlencoded"},
+            content=b"cmd=_notify-validate&" + request_data,
         )
-        return Response(status_code=200)
-
-    if verification_result != "VERIFIED":
+        response.raise_for_status()
+    except httpx.HTTPError as error:
+        provider_status = (
+            error.response.status_code
+            if isinstance(error, httpx.HTTPStatusError)
+            else None
+        )
         logging.warning(
-            "Unexpected PayPal IPN verification response",
-            extra={"request_id": x_request_id},
+            "PayPal IPN verification request failed",
+            extra={
+                "request_id": x_request_id,
+                "verification_required": verification_required,
+                "error_type": type(error).__name__,
+                "paypal_status_code": provider_status,
+                "will_continue": False,
+            },
         )
         return Response(status_code=503)
+
+    verdict = response.text.strip()
+    verified = verdict == "VERIFIED"
+    will_continue = verified or not verification_required
+    logging.log(
+        logging.INFO if verified else logging.WARNING,
+        "PayPal IPN verification completed",
+        extra={
+            "request_id": x_request_id,
+            "verification_result": (
+                verdict.lower() if verdict in ("VERIFIED", "INVALID") else "unexpected"
+            ),
+            "verification_required": verification_required,
+            "will_continue": will_continue,
+        },
+    )
+    if not will_continue:
+        return Response(status_code=200 if verdict == "INVALID" else 503)
 
     notification = dict(urllib.parse.parse_qsl(request_data.decode()))
     transaction_id = notification["txn_id"]
