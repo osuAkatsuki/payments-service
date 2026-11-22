@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+import httpx
 from discord_webhook import AsyncDiscordWebhook
 from discord_webhook.webhook import DiscordEmbed
 from fastapi import APIRouter
@@ -103,49 +104,51 @@ async def process_notification(
     x_request_id: str = Header(default_factory=lambda: str(uuid.uuid4())),
 ):
     request_data = await request.body()
-    logging.info(  # TODO: change to debug once stabilized
-        "Received PayPal IPN notification",
-        extra={
-            "request_data": request_data,
-            "request_id": x_request_id,
-        },
-    )
-
-    request_params = urllib.parse.parse_qsl(request_data.decode())
-    response = await clients.http.post(
-        url=PAYPAL_VERIFY_URL,
-        headers={"content-type": "application/x-www-form-urlencoded"},
-        params=[("cmd", "_notify-validate")] + request_params,  # type: ignore
-    )
-    response.raise_for_status()
-
-    if response.text != "VERIFIED":
-        will_grant_donor = not settings.SHOULD_REQUIRE_IPN_VERIFICATION
+    verification_required = settings.SHOULD_REQUIRE_IPN_VERIFICATION
+    try:
+        response = await clients.http.post(
+            url=PAYPAL_VERIFY_URL,
+            headers={"content-type": "application/x-www-form-urlencoded"},
+            content=b"cmd=_notify-validate&" + request_data,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as error:
+        provider_status = (
+            error.response.status_code
+            if isinstance(error, httpx.HTTPStatusError)
+            else None
+        )
         logging.warning(
-            "PayPal IPN invalid",
+            "PayPal IPN verification request failed",
             extra={
-                "reason": "ipn_verification_failed",
-                "response_text": response.text,
-                "will_grant_donor": will_grant_donor,
                 "request_id": x_request_id,
+                "verification_required": verification_required,
+                "error_type": type(error).__name__,
+                "paypal_status_code": provider_status,
+                "will_continue": False,
             },
         )
+        return Response(status_code=503)
 
-        if settings.SHOULD_REQUIRE_IPN_VERIFICATION:
-            # Do not process the request any further.
-            # Return a 2xx code to prevent PayPal from retrying.
-            schedule_failure_webhook(
-                fields={
-                    "Reason": "ipn_verification_failed",
-                    "Response Text": response.text,
-                    "Request ID": x_request_id,
-                },
-            )
-            return Response(status_code=200)
-        else:
-            pass
+    verdict = response.text.strip()
+    verified = verdict == "VERIFIED"
+    will_continue = verified or not verification_required
+    logging.log(
+        logging.INFO if verified else logging.WARNING,
+        "PayPal IPN verification completed",
+        extra={
+            "request_id": x_request_id,
+            "verification_result": (
+                verdict.lower() if verdict in ("VERIFIED", "INVALID") else "unexpected"
+            ),
+            "verification_required": verification_required,
+            "will_continue": will_continue,
+        },
+    )
+    if not will_continue:
+        return Response(status_code=200 if verdict == "INVALID" else 503)
 
-    notification = dict(request_params)
+    notification = dict(urllib.parse.parse_qsl(request_data.decode()))
     transaction_id = notification["txn_id"]
 
     if notification["payment_status"] != "Completed":
