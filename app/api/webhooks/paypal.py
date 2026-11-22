@@ -113,11 +113,15 @@ async def process_notification(
     )
     response.raise_for_status()
     if response.text.strip() != "VERIFIED":
-        logging.warning("PayPal IPN verification failed", extra={"request_id": x_request_id})
+        logging.warning(
+            "PayPal IPN verification failed", extra={"request_id": x_request_id},
+        )
         return Response(status_code=200)
 
     notification = dict(
-        urllib.parse.parse_qsl(request_data.decode("ascii", errors="replace"), keep_blank_values=True),
+        urllib.parse.parse_qsl(
+            request_data.decode("ascii", errors="replace"), keep_blank_values=True,
+        ),
     )
     transaction_id = notification.get("txn_id", "")
     if not re.fullmatch(r"[A-Za-z0-9-]{1,255}", transaction_id):
@@ -319,7 +323,9 @@ async def process_notification(
         donor_expire = now
         if privileges & subscription_bits == subscription_bits:
             donor_expire = max(user["donor_expire"], now)
-        donor_expire = min(donor_expire + int(months_to_seconds(donation_months)), I32_MAX)
+        donor_expire = min(
+            donor_expire + int(months_to_seconds(donation_months)), I32_MAX,
+        )
         privileges |= subscription_bits
 
         user_badge_ids = [
