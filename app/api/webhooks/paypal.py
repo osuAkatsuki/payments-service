@@ -103,49 +103,29 @@ async def process_notification(
     x_request_id: str = Header(default_factory=lambda: str(uuid.uuid4())),
 ):
     request_data = await request.body()
-    logging.info(  # TODO: change to debug once stabilized
-        "Received PayPal IPN notification",
-        extra={
-            "request_data": request_data,
-            "request_id": x_request_id,
-        },
-    )
-
-    request_params = urllib.parse.parse_qsl(request_data.decode())
     response = await clients.http.post(
         url=PAYPAL_VERIFY_URL,
         headers={"content-type": "application/x-www-form-urlencoded"},
-        params=[("cmd", "_notify-validate")] + request_params,  # type: ignore
+        content=b"cmd=_notify-validate&" + request_data,
     )
     response.raise_for_status()
 
-    if response.text != "VERIFIED":
-        will_grant_donor = not settings.SHOULD_REQUIRE_IPN_VERIFICATION
+    verification_result = response.text.strip()
+    if verification_result == "INVALID":
         logging.warning(
             "PayPal IPN invalid",
-            extra={
-                "reason": "ipn_verification_failed",
-                "response_text": response.text,
-                "will_grant_donor": will_grant_donor,
-                "request_id": x_request_id,
-            },
+            extra={"request_id": x_request_id},
         )
+        return Response(status_code=200)
 
-        if settings.SHOULD_REQUIRE_IPN_VERIFICATION:
-            # Do not process the request any further.
-            # Return a 2xx code to prevent PayPal from retrying.
-            schedule_failure_webhook(
-                fields={
-                    "Reason": "ipn_verification_failed",
-                    "Response Text": response.text,
-                    "Request ID": x_request_id,
-                },
-            )
-            return Response(status_code=200)
-        else:
-            pass
+    if verification_result != "VERIFIED":
+        logging.warning(
+            "Unexpected PayPal IPN verification response",
+            extra={"request_id": x_request_id},
+        )
+        return Response(status_code=503)
 
-    notification = dict(request_params)
+    notification = dict(urllib.parse.parse_qsl(request_data.decode()))
     transaction_id = notification["txn_id"]
 
     if notification["payment_status"] != "Completed":
